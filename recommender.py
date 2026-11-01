@@ -103,6 +103,35 @@ def library_summary(games, profile):
 
 # ---------------------------------------------------------------- подбор
 
+def _https(u):
+    return ("https://" + u[7:]) if isinstance(u, str) and u.startswith("http://") else u
+
+
+def media_of(store):
+    """Скриншоты и трейлеры из appdetails. Трейлеры Steam теперь — HLS/DASH, mp4 бывает не всегда."""
+    shots = [
+        {"thumb": _https(s.get("path_thumbnail")), "full": _https(s.get("path_full"))}
+        for s in (store.get("screenshots") or [])[:12] if s.get("path_full")
+    ]
+    movies = []
+    for m in (store.get("movies") or [])[:4]:
+        mp4 = m.get("mp4") or {}
+        webm = m.get("webm") or {}
+        direct = mp4.get("max") or mp4.get("480") or webm.get("max") or webm.get("480")
+        hls = m.get("hls_h264")
+        if not (direct or hls):
+            continue
+        movies.append({
+            "name": m.get("name", ""),
+            "thumb": _https(m.get("thumbnail")),
+            "hls": _https(hls),
+            "mp4": _https(direct),
+            "highlight": bool(m.get("highlight", True)),
+        })
+    movies.sort(key=lambda x: not x["highlight"])
+    return {"screenshots": shots, "movies": movies}
+
+
 def _target_vector(profile_tags, mode, chosen):
     if mode == "tags" and chosen:
         target = {t: v * 0.35 for t, v in list(profile_tags.items())[:30]}
@@ -258,6 +287,7 @@ def recommend(state, f, progress):
             "developers": store.get("developers", [])[:2],
             "release": (store.get("release_date") or {}).get("date", ""),
             "genres": [g.get("description") for g in store.get("genres", [])][:3],
+            "media": media_of(store),
             "price": {
                 "is_free": is_free,
                 "final": po.get("final_formatted") if po else None,

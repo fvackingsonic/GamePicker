@@ -4,6 +4,9 @@
 Никаких сторонних библиотек не нужно (только Python 3.9+).
 """
 import json
+import re
+import urllib.error
+import urllib.request
 import os
 import sys
 import socket
@@ -170,11 +173,17 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; cha
         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
 
 
+MEDIA_HOST = re.compile(r"^[a-z0-9.-]+\.(steamstatic\.com|steampowered\.com|akamaihd\.net|steamcontent\.com)$")
+MEDIA_ABS = re.compile(r"https?://([a-z0-9.-]+\.(?:steamstatic\.com|steampowered\.com|akamaihd\.net|steamcontent\.com))/")
+MEDIA_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GamePicker/1.0"
 
     def log_message(self, fmt, *args):  # тише в консоли
-        if "/api/job" not in (args[0] if args else ""):
+        first = str(args[0]) if args else ""
+        if "/api/job" not in first and "/api/ping" not in first and "/media/" not in first:
             sys.stderr.write("%s\n" % (fmt % args))
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
@@ -202,6 +211,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not_found"})
         with open(path, "rb") as f:
             self._send(200, f.read(), MIME.get(os.path.splitext(path)[1], "application/octet-stream"))
+
+    def _media(self, rest, query):
+        """Прокси для трейлеров Steam (HLS): свой адрес — браузер не упирается в CORS."""
+        host, _, path = rest.partition("/")
+        if not MEDIA_HOST.match(host) or not path:
+            return self._send(404, {"error": "bad_media_host"})
+        target = f"https://{host}/{path}" + (f"?{query}" if query else "")
+        hdrs = {"User-Agent": MEDIA_UA, "Referer": "https://store.steampowered.com/"}
+        if self.headers.get("Range"):
+            hdrs["Range"] = self.headers["Range"]
+        try:
+            with urllib.request.urlopen(urllib.request.Request(target, headers=hdrs), timeout=30) as r:
+                ctype = r.headers.get("Content-Type", "application/octet-stream")
+                if path.endswith(".m3u8") or "mpegurl" in ctype.lower():
+                    text = r.read().decode("utf-8", "replace")
+                    text = MEDIA_ABS.sub(lambda m: f"/media/{m.group(1)}/", text)
+                    return self._send(200, text.encode("utf-8"), "application/vnd.apple.mpegurl")
+                self.send_response(r.status)
+                for h in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+                    if r.headers.get(h):
+                        self.send_header(h, r.headers[h])
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                while True:
+                    chunk = r.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except urllib.error.HTTPError as e:
+            self._send(e.code, {"error": "upstream", "code": e.code})
+        except (ConnectionError, BrokenPipeError, TimeoutError, urllib.error.URLError, OSError):
+            pass  # зритель перемотал или закрыл видео
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -232,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(502, {"error": {"code": e.code, "detail": e.detail}})
             except ValueError:
                 return self._send(400, {"error": {"code": "bad_request"}})
+        if url.path.startswith("/media/"):
+            return self._media(url.path[len("/media/"):], url.query)
         if url.path.startswith("/api/"):
             return self._send(404, {"error": "not_found"})
         return self._static("index.html" if url.path == "/" else url.path)
