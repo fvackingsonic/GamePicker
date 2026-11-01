@@ -95,6 +95,7 @@ function openSettings() {
   f.anthropic_api_key.value = "";
   f.anthropic_api_key.placeholder = c.anthropic_key_mask ? `${c.anthropic_key_mask} (${t("key_saved")})` : "sk-ant-…";
   f.claude_model.value = c.claude_model || "claude-haiku-5-5";
+  f.anthropic_workspace.value = c.anthropic_workspace || "";
   $("#settings-err").textContent = "";
   $("#settings-cancel").hidden = !c.configured;
   $("#settings").showModal();
@@ -109,6 +110,7 @@ async function saveSettings(ev) {
     country: f.country.value,
     anthropic_api_key: f.anthropic_api_key.value.trim(),
     claude_model: f.claude_model.value.trim() || "claude-haiku-5-5",
+    anthropic_workspace: f.anthropic_workspace.value.trim(),
   };
   if ((!body.steam_api_key && !S.config?.steam_key_mask) || !body.steam_profile) {
     $("#settings-err").textContent = t("err_not_configured");
@@ -345,6 +347,7 @@ function summaryHtml(s) {
   if (s.median_hours) parts.push(`<h5>${esc(t("typical_playtime"))}</h5><div>~${s.median_hours} ${esc(t("h"))}</div>`);
   if (!s.ai && s.quotes?.pos) parts.push(`<h5>${esc(t("quote_pos"))}</h5><blockquote>${esc(s.quotes.pos)}</blockquote>`);
   if (!s.ai && s.quotes?.neg) parts.push(`<h5>${esc(t("quote_neg"))}</h5><blockquote>${esc(s.quotes.neg)}</blockquote>`);
+  if (s.ai_error) parts.unshift(`<div class="err" style="margin:0 0 8px">${esc(t("ai_failed"))}</div>`);
   const stat = s.pct != null ? `${s.pct}% ${t("positive")} · ${Number(s.total).toLocaleString()} ${t("reviews_word")}` : "";
   parts.push(`<div class="src">${esc(stat)}${stat ? " · " : ""}${esc(s.ai ? "Claude" : t("source_local"))}</div>`);
   return parts.join("");

@@ -92,7 +92,7 @@ def heuristic(reviews_all, reviews_local, summary):
 LANG_NAME = {"ru": "Russian", "uk": "Ukrainian", "en": "English"}
 
 
-def claude_summary(api_key, model, name, reviews, lang):
+def claude_summary(api_key, model, name, reviews, lang, workspace=""):
     pos = sorted([r for r in reviews if r.get("voted_up")], key=lambda r: -(r.get("votes_up") or 0))[:20]
     neg = sorted([r for r in reviews if not r.get("voted_up")], key=lambda r: -(r.get("votes_up") or 0))[:20]
     block = "\n".join(f"[+] {_trim(r['review'], 400)}" for r in pos) + "\n" + "\n".join(
@@ -115,7 +115,8 @@ def claude_summary(api_key, model, name, reviews, lang):
     }).encode("utf-8")
     d = http_json(
         "https://api.anthropic.com/v1/messages",
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json",
+                 **({"anthropic-workspace-id": workspace} if workspace else {})},
         data=body,
         retries=2,
         timeout=90,
@@ -127,7 +128,7 @@ def claude_summary(api_key, model, name, reviews, lang):
     return json.loads(m.group(0))
 
 
-def summarize(appid, name, lang, anthropic_key="", model=""):
+def summarize(appid, name, lang, anthropic_key="", model="", workspace=""):
     cache_key = f"summary:{appid}:{lang}:{bool(anthropic_key)}:{model}"
     hit = cache_get(cache_key, 7 * 86400)
     if hit:
@@ -143,9 +144,10 @@ def summarize(appid, name, lang, anthropic_key="", model=""):
     result["source"] = "local"
     if anthropic_key and reviews_all:
         try:
-            result["ai"] = claude_summary(anthropic_key, model, name, reviews_local + reviews_all, lang)
+            result["ai"] = claude_summary(anthropic_key, model or "claude-haiku-5-5", name, reviews_local + reviews_all, lang, workspace)
             result["source"] = "ai"
         except (SteamError, ValueError) as e:
             result["ai_error"] = getattr(e, "code", "ai_failed")
-    cache_set(cache_key, result)
+    if "ai_error" not in result:
+        cache_set(cache_key, result)
     return result

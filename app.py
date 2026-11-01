@@ -53,7 +53,7 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 LAST_PING = [0.0]
 DEFAULT_CONFIG = {
     "steam_api_key": "",
@@ -61,6 +61,7 @@ DEFAULT_CONFIG = {
     "country": "ua",
     "anthropic_api_key": "",
     "claude_model": "claude-haiku-5-5",
+    "anthropic_workspace": "",
 }
 
 STATE = {"games": None, "profile": None, "steamid": None, "summary": None}
@@ -99,6 +100,7 @@ def public_config(cfg):
         "anthropic_key_mask": mask(cfg["anthropic_api_key"]),
         "has_ai": bool(cfg["anthropic_api_key"]),
         "claude_model": cfg["claude_model"],
+        "anthropic_workspace": cfg.get("anthropic_workspace", ""),
     }
 
 
@@ -217,7 +219,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 appid = int(q.get("appid", "0"))
                 res = summarize(appid, q.get("name", ""), q.get("lang", "ru"),
-                                cfg["anthropic_api_key"], cfg["claude_model"])
+                                cfg["anthropic_api_key"], cfg["claude_model"],
+                                cfg.get("anthropic_workspace", ""))
                 return self._send(200, res)
             except SteamError as e:
                 return self._send(502, {"error": {"code": e.code, "detail": e.detail}})
@@ -232,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         if url.path == "/api/config":
             cfg = load_config()
-            for k in ("steam_profile", "country", "claude_model"):
+            for k in ("steam_profile", "country", "claude_model", "anthropic_workspace"):
                 if k in body and isinstance(body[k], str):
                     cfg[k] = body[k].strip()
             for k in ("steam_api_key", "anthropic_api_key"):
