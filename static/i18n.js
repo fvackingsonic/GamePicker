@@ -631,3 +631,6 @@ Object.assign(I18N.en, {
 Object.assign(I18N.ru, { owned_line: "Уже есть в библиотеке", owned_hours: "наиграно {h} ч" });
 Object.assign(I18N.uk, { owned_line: "Вже є в бібліотеці", owned_hours: "награно {h} год" });
 Object.assign(I18N.en, { owned_line: "Already in your library", owned_hours: "{h} h played" });
+Object.assign(I18N.ru, { play: "Воспроизвести", mute: "Звук", open_full: "Открыть на весь экран", splitter_hint: "Потяни, чтобы изменить ширину панели. Двойной клик — обычный размер" });
+Object.assign(I18N.uk, { play: "Відтворити", mute: "Звук", open_full: "Відкрити на весь екран", splitter_hint: "Потягни, щоб змінити ширину панелі. Подвійний клік — звичайний розмір" });
+Object.assign(I18N.en, { play: "Play", mute: "Sound", open_full: "Open fullscreen", splitter_hint: "Drag to resize the panel. Double-click to reset" });

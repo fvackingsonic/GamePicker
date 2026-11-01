@@ -715,6 +715,76 @@ async function attachVideo(video, it, holder) {
   }
 }
 
+const PI = {
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></svg>',
+  vol: '<svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  mute: '<svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9.5l5 5m0-5l-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  full: '<svg viewBox="0 0 24 24"><path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+const fmtTime = (s) => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+/** Красивый плеер поверх <video>: большая кнопка, прогресс с перемоткой, громкость, время, полный экран. */
+function mountPlayer(box, video, onFull) {
+  const ui = document.createElement("div");
+  ui.className = "vp";
+  ui.innerHTML = `
+    <button class="vp-big" aria-label="${esc(t("play"))}">${PI.play}</button>
+    <div class="vp-bar">
+      <div class="vp-track"><div class="vp-buf"></div><div class="vp-fill"></div><div class="vp-knob"></div></div>
+      <div class="vp-row">
+        <button class="vp-btn vp-pp" aria-label="${esc(t("play"))}">${PI.play}</button>
+        <span class="vp-time">0:00 / 0:00</span>
+        <span class="grow"></span>
+        <div class="vp-vol"><button class="vp-btn vp-mute" aria-label="${esc(t("mute"))}">${PI.vol}</button><input type="range" min="0" max="1" step="0.05" class="vp-volr"></div>
+        <button class="vp-btn vp-full" aria-label="${esc(t("fullscreen"))}">${PI.full}</button>
+      </div>
+    </div>`;
+  box.appendChild(ui);
+  const vol = load("gp.volume", 0.6), muted = load("gp.muted", false);
+  video.volume = vol; video.muted = muted;
+  const $u = (s) => $(s, ui);
+  const volr = $u(".vp-volr");
+  volr.value = muted ? 0 : vol;
+  const sync = () => {
+    const pl = !video.paused && !video.ended;
+    box.classList.toggle("vp-playing", pl);
+    $u(".vp-pp").innerHTML = pl ? PI.pause : PI.play;
+    $u(".vp-big").innerHTML = PI.play;
+    $u(".vp-mute").innerHTML = video.muted || video.volume === 0 ? PI.mute : PI.vol;
+  };
+  const tick = () => {
+    const d = video.duration || 0;
+    const p = d ? video.currentTime / d : 0;
+    $u(".vp-fill").style.width = `${p * 100}%`;
+    $u(".vp-knob").style.left = `${p * 100}%`;
+    $u(".vp-time").textContent = `${fmtTime(video.currentTime)} / ${fmtTime(d)}`;
+    try { if (video.buffered.length && d) $u(".vp-buf").style.width = `${(video.buffered.end(video.buffered.length - 1) / d) * 100}%`; } catch { /* ignore */ }
+  };
+  const toggle = () => (video.paused || video.ended ? video.play().catch(() => {}) : video.pause());
+  ["play", "pause", "ended", "volumechange"].forEach((ev) => video.addEventListener(ev, sync));
+  ["timeupdate", "durationchange", "progress", "seeked"].forEach((ev) => video.addEventListener(ev, tick));
+  video.addEventListener("waiting", () => box.classList.add("vp-wait"));
+  ["playing", "canplay"].forEach((ev) => video.addEventListener(ev, () => box.classList.remove("vp-wait")));
+  video.addEventListener("click", toggle);
+  video.addEventListener("dblclick", () => onFull && onFull());
+  $u(".vp-big").addEventListener("click", toggle);
+  $u(".vp-pp").addEventListener("click", toggle);
+  $u(".vp-full").addEventListener("click", () => onFull && onFull());
+  $u(".vp-mute").addEventListener("click", () => { video.muted = !video.muted; if (!video.muted && video.volume === 0) video.volume = 0.6; volr.value = video.muted ? 0 : video.volume; store("gp.muted", video.muted); });
+  volr.addEventListener("input", () => { video.volume = Number(volr.value); video.muted = video.volume === 0; store("gp.volume", video.volume || 0.6); store("gp.muted", video.muted); });
+  const track = $u(".vp-track");
+  const seek = (e) => { const r = track.getBoundingClientRect(); const p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); if (video.duration) video.currentTime = p * video.duration; tick(); };
+  track.addEventListener("pointerdown", (e) => { track.setPointerCapture(e.pointerId); box.classList.add("vp-seeking"); seek(e); track.onpointermove = seek; });
+  track.addEventListener("pointerup", () => { track.onpointermove = null; box.classList.remove("vp-seeking"); });
+  let idle = null;
+  const wake = () => { box.classList.add("vp-active"); clearTimeout(idle); idle = setTimeout(() => box.classList.remove("vp-active"), 2200); };
+  box.addEventListener("pointermove", wake);
+  box.addEventListener("pointerdown", wake);
+  box.addEventListener("pointerleave", () => { clearTimeout(idle); box.classList.remove("vp-active"); });
+  sync(); tick(); wake();
+}
+
 function showHero(i, play) {
   stopHero();
   const items = S.media.items;
@@ -727,14 +797,16 @@ function showHero(i, play) {
   if (!items.length) { hero.innerHTML = `<img alt="" src="${esc(g.image || headerImg(g.appid))}">`; return; }
   const it = items[i];
   if (it.type === "image") {
-    hero.innerHTML = `<img alt="" src="${esc(it.full)}">${expand}`;
+    hero.innerHTML = `<img alt="" class="zoomable" src="${esc(it.full)}" title="${esc(t("open_full"))}">${expand}`;
+    $("img", hero).addEventListener("click", () => openViewer(g, i));
   } else if (!play) {
     hero.innerHTML = `<img alt="" src="${esc(it.thumb || g.image)}"><button class="play" aria-label="${esc(t("trailer"))}"></button>${expand}`;
     $(".play", hero).addEventListener("click", () => showHero(i, true));
   } else {
     hero.classList.add("playing");
-    hero.innerHTML = `<video controls playsinline poster="${esc(it.thumb || "")}"></video>${expand}`;
+    hero.innerHTML = `<video playsinline poster="${esc(it.thumb || "")}"></video>`;
     const video = $("video", hero);
+    mountPlayer(hero, video, () => { const at = video.currentTime; stopHero(); openViewer(g, i, at); showHero(i, false); });
     video.addEventListener("error", () => { stopHero(); hero.innerHTML = `<img alt="" src="${esc(it.thumb || g.image)}"><div class="err">${esc(t("video_error"))}</div>`; }, { once: true });
     attachVideo(video, it, S.media);
   }
@@ -835,7 +907,8 @@ function stopViewer() {
   const v = $("#viewer-media video");
   if (v) { v.pause(); v.removeAttribute("src"); v.load(); }
 }
-function openViewer(g, index) {
+function openViewer(g, index, startAt = 0) {
+  V.startAt = startAt;
   V.game = g;
   V.items = mediaItems(g);
   if (!V.items.length) return;
@@ -858,8 +931,10 @@ function showViewer(i) {
   $("#viewer-prev").disabled = V.i === 0;
   $("#viewer-next").disabled = V.i === V.items.length - 1;
   if (it.type === "image") { box.innerHTML = `<img alt="" src="${esc(it.full)}">`; return; }
-  box.innerHTML = `<video controls playsinline poster="${esc(it.thumb || "")}"></video>`;
+  box.innerHTML = `<video playsinline poster="${esc(it.thumb || "")}"></video>`;
   const video = $("video", box);
+  mountPlayer(box, video, () => (document.fullscreenElement ? document.exitFullscreen() : box.requestFullscreen?.().catch(() => {})));
+  if (V.startAt) { const at = V.startAt; V.startAt = 0; video.addEventListener("loadedmetadata", () => { video.currentTime = at; }, { once: true }); }
   video.addEventListener("error", () => {
     stopViewer();
     box.innerHTML = `<p class="viewer-err">${esc(t("video_error"))}<br><a href="https://store.steampowered.com/app/${V.game.appid}/" target="_blank" rel="noopener">${esc(t("open_steam"))}</a></p>`;
@@ -1041,6 +1116,42 @@ async function doUpdate() {
   }, 700);
 }
 
+// ---------------------------------------------------------------- ширина панели игры
+const SIDE_DEF = 420;
+function applySideWidth(w) {
+  const max = Math.max(360, Math.min(window.innerWidth * 0.62, window.innerWidth - 520));
+  const v = Math.round(Math.min(max, Math.max(340, w || SIDE_DEF)));
+  document.documentElement.style.setProperty("--side-w", `${v}px`);
+  return v;
+}
+function bindSplitter() {
+  const sp = $("#splitter");
+  applySideWidth(load("gp.sideW", SIDE_DEF));
+  window.addEventListener("resize", () => applySideWidth(load("gp.sideW", SIDE_DEF)));
+  sp.addEventListener("dblclick", () => { store("gp.sideW", SIDE_DEF); applySideWidth(SIDE_DEF); });
+  sp.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    sp.setPointerCapture(e.pointerId);
+    document.body.classList.add("resizing-side");
+    const startX = e.clientX, startW = $("#side").getBoundingClientRect().width;
+    let last = startW;
+    const move = (ev) => { last = applySideWidth(startW - (ev.clientX - startX)); };
+    const up = () => {
+      sp.removeEventListener("pointermove", move); sp.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing-side");
+      store("gp.sideW", last);
+    };
+    sp.addEventListener("pointermove", move);
+    sp.addEventListener("pointerup", up);
+  });
+  sp.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const w = applySideWidth($("#side").getBoundingClientRect().width + (e.key === "ArrowLeft" ? 30 : -30));
+    store("gp.sideW", w);
+  });
+}
+
 // ---------------------------------------------------------------- своё окно (без рамки Windows)
 const WIN = { frameless: false, rect: null, max: false };
 async function initWindow() {
@@ -1108,6 +1219,7 @@ function bindEdges() {
 // ---------------------------------------------------------------- события
 function bind() {
   bindEdges();
+  bindSplitter();
   $$("[data-win]").forEach((b) => b.addEventListener("click", () => winAction(b.dataset.win)));
   $("#top").addEventListener("dblclick", (e) => { if (WIN.frameless && (e.target.id === "top" || e.target.id === "drag")) winAction("max"); });
   $("#btn-reset").addEventListener("click", resetFilters);
