@@ -21,7 +21,9 @@ else:
     DATA_DIR = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(DATA_DIR, exist_ok=True)
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
-UA = "SteamGamePicker/1.0 (local app)"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GamePicker/1.1"
+# Для игр 18+ магазин Steam иначе отдаёт страницу проверки возраста вместо данных
+STORE_COOKIES = "birthtime=568022401; lastagecheckage=1-0-1988; mature_content=1; wants_mature_content=1"
 
 STORE_LANG = {"ru": "russian", "uk": "ukrainian", "en": "english"}
 
@@ -82,6 +84,13 @@ def cache_set(key, value):
     os.replace(tmp, path)
 
 
+def _log_err(msg):
+    try:
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), "[net]", msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def http_json(url, params=None, ttl=0, headers=None, data=None, retries=3, timeout=40):
     if params:
         url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
@@ -96,26 +105,37 @@ def http_json(url, params=None, ttl=0, headers=None, data=None, retries=3, timeo
     for attempt in range(retries):
         if throttle:
             throttle.wait()
-        req = urllib.request.Request(
-            url, data=data, headers={"User-Agent": UA, "Accept": "application/json", **(headers or {})}
-        )
+        hdrs = {"User-Agent": UA, "Accept": "application/json, text/javascript, */*", **(headers or {})}
+        if host == "store.steampowered.com":
+            hdrs.setdefault("Cookie", STORE_COOKIES)
+        req = urllib.request.Request(url, data=data, headers=hdrs)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8", "replace")
-            value = json.loads(raw) if raw.strip() else None
+            try:
+                value = json.loads(raw) if raw.strip() else None
+            except ValueError:
+                # не JSON (страница проверки возраста, капча, ошибка) — не повторяем вслепую
+                snippet = raw.strip()[:120].replace("\n", " ")
+                _log_err(f"Не JSON от {host}: {snippet}")
+                raise SteamError("bad_response", f"{host}: {snippet[:60]}")
             if ttl and value is not None:
                 cache_set(cache_key, value)
             return value
+        except SteamError:
+            raise
         except urllib.error.HTTPError as e:
             last_err = e
+            _log_err(f"HTTP {e.code} от {host}: {url.split('?')[0]}")
             if e.code in (429, 500, 502, 503, 504):
                 time.sleep((6 if e.code == 429 else 2) * (attempt + 1))
                 continue
             if e.code in (401, 403):
                 raise SteamError("forbidden", host) from e
             raise SteamError("http", f"{host} HTTP {e.code}") from e
-        except (urllib.error.URLError, TimeoutError, ValueError, ConnectionError) as e:
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
             last_err = e
+            _log_err(f"Сеть ({host}), попытка {attempt + 1}: {e!r}")
             time.sleep(1.5 * (attempt + 1))
     raise SteamError("network", f"{host}: {last_err}")
 

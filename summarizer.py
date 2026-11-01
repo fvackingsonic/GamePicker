@@ -133,13 +133,25 @@ def summarize(appid, name, lang, anthropic_key="", model="", workspace=""):
     hit = cache_get(cache_key, 7 * 86400)
     if hit:
         return hit
-    data_all = app_reviews(appid, "all", 100)
+    first_err = None
+    try:
+        data_all = app_reviews(appid, "all", 100)
+    except SteamError as e:
+        first_err = e
+        data_all = {}
     reviews_all = data_all.get("reviews", []) or []
     summary = data_all.get("query_summary", {}) or {}
     try:
         reviews_local = app_reviews(appid, STORE_LANG.get(lang, "english"), 40).get("reviews", []) or []
-    except SteamError:
+    except SteamError as e:
+        first_err = first_err or e
         reviews_local = []
+    if not reviews_all and not reviews_local:
+        if first_err:
+            raise first_err
+        raise SteamError("no_reviews")
+    if not reviews_all:  # запасной вариант: только отзывы на твоём языке
+        reviews_all = reviews_local
     result = heuristic(reviews_all, reviews_local, summary)
     result["source"] = "local"
     if anthropic_key and reviews_all:

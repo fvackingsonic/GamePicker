@@ -500,3 +500,9 @@ Object.assign(I18N.en, {
 I18N.ru.hide_summary = "Свернуть отзывы";
 I18N.uk.hide_summary = "Згорнути відгуки";
 I18N.en.hide_summary = "Collapse reviews";
+Object.assign(I18N.ru, { theme_auto: "Как в системе", theme_light: "Светлая тема", theme_dark: "Тёмная тема" });
+Object.assign(I18N.uk, { theme_auto: "Як у системі", theme_light: "Світла тема", theme_dark: "Темна тема" });
+Object.assign(I18N.en, { theme_auto: "Match system", theme_light: "Light theme", theme_dark: "Dark theme" });
+Object.assign(I18N.ru, { retry: "Попробовать ещё раз", err_bad_response: "Steam вернул не те данные, что ожидались.", err_no_reviews: "У этой игры пока нет отзывов." });
+Object.assign(I18N.uk, { retry: "Спробувати ще раз", err_bad_response: "Steam повернув не ті дані, що очікувалися.", err_no_reviews: "У цієї гри поки немає відгуків." });
+Object.assign(I18N.en, { retry: "Try again", err_bad_response: "Steam returned unexpected data.", err_no_reviews: "This game has no reviews yet." });

@@ -9,6 +9,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Dela+Gothic+One&family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script>
+    // тема до отрисовки, чтобы не мигало
+    try { var th = JSON.parse(localStorage.getItem("gp.theme") || '"auto"'); if (th !== "auto") document.documentElement.dataset.theme = th; } catch (e) {}
+  </script>
 </head>
 <body>
   <header class="masthead">
@@ -20,6 +24,9 @@
     <div class="masthead-tools">
       <div class="lang" role="group" aria-label="Language">
         <button data-lang="ru">RU</button><button data-lang="uk">UK</button><button data-lang="en">EN</button>
+      </div>
+      <div class="theme" role="group" id="theme">
+        <button data-theme-btn="auto" data-i18n-title="theme_auto"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor"/></svg></button><button data-theme-btn="light" data-i18n-title="theme_light"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="3.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1"/></g></svg></button><button data-theme-btn="dark" data-i18n-title="theme_dark"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z" fill="currentColor"/></svg></button>
       </div>
       <button class="btn-ink small" id="btn-settings" data-i18n="settings"></button>
     </div>

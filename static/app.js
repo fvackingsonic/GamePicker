@@ -21,7 +21,14 @@ const S = {
   lastFilters: null,
   busy: false,
   tab: "picks",
+  theme: load("gp.theme", "auto"),
 };
+
+function applyTheme() {
+  if (S.theme === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = S.theme;
+  $$("[data-theme-btn]").forEach((b) => { b.classList.toggle("on", b.dataset.themeBtn === S.theme); b.setAttribute("aria-pressed", b.dataset.themeBtn === S.theme); });
+}
 
 // ---------------------------------------------------------------- i18n
 function t(key, vars) {
@@ -40,6 +47,7 @@ function applyI18n() {
   document.documentElement.lang = S.lang;
   $$("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
   $$("[data-i18n-ph]").forEach((el) => (el.placeholder = t(el.dataset.i18nPh)));
+  $$("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); el.setAttribute("aria-label", el.title); });
   $$(".lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === S.lang));
   $("#mode-hint").textContent = t(S.mode === "tags" ? "mode_tags_hint" : "mode_library_hint");
   renderLibrary();
@@ -373,7 +381,10 @@ async function toggleSummary(g, el) {
     box.innerHTML = summaryHtml(s);
     btn.textContent = t("hide_summary");
   } catch (e) {
-    box.innerHTML = `<div class="err">${esc(errText(e))}</div>`;
+    box.innerHTML = `<div class="err">${esc(errText(e))}</div>` +
+      (e && e.detail ? `<div class="src">${esc(e.detail)}</div>` : "") +
+      `<button class="link retry">${esc(t("retry"))}</button>`;
+    $(".retry", box).addEventListener("click", () => { box.hidden = true; toggleSummary(g, el); });
   } finally {
     btn.disabled = false;
   }
@@ -442,6 +453,7 @@ function renderHidden() {
 
 // ---------------------------------------------------------------- init
 function bind() {
+  $$("[data-theme-btn]").forEach((b) => b.addEventListener("click", () => { S.theme = b.dataset.themeBtn; store("gp.theme", S.theme); applyTheme(); }));
   $$(".lang button").forEach((b) => b.addEventListener("click", () => { S.lang = b.dataset.lang; store("gp.lang", S.lang); applyI18n(); }));
   $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   $("#btn-settings").addEventListener("click", openSettings);
@@ -472,6 +484,7 @@ function bind() {
 
 async function init() {
   bind();
+  applyTheme();
   $$("#mode button").forEach((x) => x.classList.toggle("on", x.dataset.mode === S.mode));
   applyI18n();
   try {
