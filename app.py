@@ -6,7 +6,9 @@
 import json
 import os
 import sys
+import socket
 import threading
+import time
 import traceback
 import uuid
 import webbrowser
@@ -14,12 +16,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from recommender import build_profile, library_summary, recommend
-from steam_api import BASE_DIR, SteamError, owned_games, resolve_steamid
+from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
 from summarizer import summarize
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+APP_VERSION = "1.0.0"
+LAST_PING = [0.0]
 DEFAULT_CONFIG = {
     "steam_api_key": "",
     "steam_profile": "",
@@ -167,6 +171,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if url.path == "/api/ping":
+            LAST_PING[0] = time.monotonic()
+            return self._send(200, {"ok": True, "version": APP_VERSION})
         if url.path == "/api/config":
             return self._send(200, public_config(load_config()))
         if url.path == "/api/library":
@@ -214,12 +221,56 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not_found"})
 
 
+def free_port(preferred):
+    for port in [preferred] + list(range(preferred + 1, preferred + 20)):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((HOST, port))
+                return port
+            except OSError:
+                continue
+    return 0
+
+
+def watchdog(srv):
+    """Без окна приложения (режим браузера в exe): выключаемся, когда вкладку закрыли."""
+    while True:
+        time.sleep(10)
+        if LAST_PING[0] and time.monotonic() - LAST_PING[0] > 45:
+            srv.shutdown()
+            return
+
+
 def main():
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)
-    url = f"http://{HOST}:{PORT}"
-    print(f"GamePicker запущен: {url}  (Ctrl+C — остановить)")
+    port = free_port(PORT)
+    srv = ThreadingHTTPServer((HOST, port), Handler)
+    url = f"http://{HOST}:{srv.server_address[1]}"
+    print(f"GamePicker {APP_VERSION}: {url}  (Ctrl+C — остановить)")
+
+    use_window = "--browser" not in sys.argv and "--no-browser" not in sys.argv
+    if use_window:
+        try:
+            import webview  # pywebview: отдельное окно приложения
+        except ImportError:
+            use_window = False
+
+    if use_window:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        icon = os.path.join(BASE_DIR, "assets", "icon.png")
+        webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
+                              background_color="#0f1115", text_select=True)
+        try:
+            webview.start(icon=icon if os.path.exists(icon) else None)
+        except Exception:  # noqa: BLE001 — нет WebView2 и т.п.: откроем в браузере
+            use_window = False
+        else:
+            srv.shutdown()
+            return
+
     if "--no-browser" not in sys.argv:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    if FROZEN:
+        threading.Thread(target=watchdog, args=(srv,), daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

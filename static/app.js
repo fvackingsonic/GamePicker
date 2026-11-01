@@ -396,3 +396,6 @@ async function init() {
 }
 
 init();
+// пинг для exe-режима: сервер выключится, когда вкладку закроют
+setInterval(() => fetch("/api/ping").catch(() => {}), 10000);
+fetch("/api/ping").catch(() => {});

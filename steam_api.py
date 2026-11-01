@@ -9,8 +9,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
+import sys
+
+FROZEN = getattr(sys, "frozen", False)  # запущено как .exe (PyInstaller)
+# Файлы программы (static/) — рядом с кодом или внутри exe
+BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+# Настройки и кэш: в exe — %APPDATA%\GamePicker, иначе — папка проекта
+if FROZEN:
+    DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GamePicker")
+else:
+    DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(DATA_DIR, exist_ok=True)
+CACHE_DIR = os.path.join(DATA_DIR, "cache")
 UA = "SteamGamePicker/1.0 (local app)"
 
 STORE_LANG = {"ru": "russian", "uk": "ukrainian", "en": "english"}
