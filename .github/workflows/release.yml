@@ -68,22 +68,42 @@ jobs:
           if (-not $ok) { throw "GamePicker.exe did not start" }
           (Get-Item dist\GamePicker.exe).Length / 1MB
 
-      - name: Window-mode test (как при двойном клике)
+      - name: Window-mode test (своё окно, разворот, TikTok, скриншоты)
         shell: pwsh
         continue-on-error: true
         run: |
           Remove-Item "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force shots | Out-Null
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Shot($name) {
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("shots\$name.png"); $g.Dispose(); $bmp.Dispose()
+          }
           $p = Start-Process dist\GamePicker.exe -PassThru
-          Start-Sleep -Seconds 25
+          Start-Sleep -Seconds 22
+          $base = "http://127.0.0.1:8765"
           $alive = -not $p.HasExited
-          try { $r = Invoke-RestMethod http://127.0.0.1:8765/api/ping; $ping = $r.ok } catch { $ping = $false }
+          try { $ping = (Invoke-RestMethod "$base/api/ping").ok } catch { $ping = $false }
           "alive=$alive ping=$ping"
-          try { $w = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"url":"https://www.tiktok.com/search/video?q=Hades","title":"TikTok: Hades"}' http://127.0.0.1:8765/api/window; "tiktok_window_opened=$($w.opened)" } catch { "tiktok_window_error=$_" }
-          Start-Sleep -Seconds 4
+          try { $w = Invoke-RestMethod "$base/api/win"; "win: frameless=$($w.frameless) rect=$($w.rect | ConvertTo-Json -Compress)" } catch { "win error: $_" }
+          Shot "1_window"
+          try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"max"}' "$base/api/win"; "after max: $($m.rect | ConvertTo-Json -Compress)" } catch { "max error: $_" }
+          Start-Sleep -Seconds 2; Shot "2_maximized"
+          try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"max"}' "$base/api/win"; "after restore: $($m.rect | ConvertTo-Json -Compress)" } catch { "restore error: $_" }
+          try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"rect","x":60,"y":40,"w":1100,"h":760}' "$base/api/win"; "after resize: $($m.rect | ConvertTo-Json -Compress)" } catch { "resize error: $_" }
+          try { $tt = Invoke-RestMethod -TimeoutSec 60 "$base/api/tiktok?q=Hades"; "tiktok ids: $($tt.ids.Count) first=$($tt.ids | Select-Object -First 3) error=$($tt.error)" } catch { "tiktok error: $_" }
+          Start-Sleep -Seconds 1; Shot "3_after"
           Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
           Stop-Process -Name GamePicker -Force -ErrorAction SilentlyContinue
-          Get-Process | Where-Object { $_.ProcessName -like "msedgewebview2*" } | Measure-Object | Select-Object -ExpandProperty Count
           if (-not ($alive -and $ping)) { throw "window mode failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: window-shots
+          path: shots/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -91,6 +111,7 @@ jobs:
           path: dist/GamePicker.exe
 
       - name: Publish release
+        if: ${{ !contains(github.event.head_commit.message, '[no-release]') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
@@ -101,6 +122,7 @@ jobs:
           body_path: build/release_notes.md
 
       - name: Self-update test (старая версия сама обновляется до новой)
+        if: ${{ !contains(github.event.head_commit.message, '[no-release]') }}
         shell: pwsh
         env:
           GAMEPICKER_FAKE_VERSION: "1.0.0"

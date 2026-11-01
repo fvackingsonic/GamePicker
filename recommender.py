@@ -276,6 +276,7 @@ def recommend(state, f, progress):
 
     def fetch(entry):
         aid = entry[1]
+        progress(0.25 + 0.7 * done[0] / len(shortlist), "details", "")  # при отмене выходим сразу
         try:
             spy = spy_app(aid)
         except SteamError:
@@ -404,3 +405,68 @@ def recommend(state, f, progress):
         p.pop("_seed", None)
     progress(1.0, "rank", "")
     return {"items": picked, "pool_tags": pool_tags, "checked": len(cands)}
+
+
+# ---------------------------------------------------------------- одна игра (из поиска)
+
+def game_card(state, appid, cc="ua", lang="ru"):
+    """Карточка любой игры Steam в том же виде, что и результаты подбора."""
+    store = store_details(appid, cc, lang)
+    if not store:
+        raise SteamError("not_found", str(appid))
+    try:
+        spy = spy_app(appid)
+    except SteamError:
+        spy = {}
+    all_tags = spy.get("tags") if isinstance(spy.get("tags"), dict) else {}
+    vec = tag_vector(all_tags)
+    pos, neg = _int(spy.get("positive")), _int(spy.get("negative"))
+    n = pos + neg
+    po = store.get("price_overview")
+    is_free = bool(store.get("is_free"))
+
+    best, best_sim, shared = None, 0.0, []
+    profile = state.get("profile") if state else None
+    owned = {g["appid"]: g["hours"] for g in (state.get("games") or [])} if state else {}
+    if profile and vec:
+        for g in profile["top"]:
+            if g["appid"] == appid:
+                continue
+            sim = cosine(vec, profile["vectors"].get(g["appid"], {}))
+            if sim > best_sim:
+                best, best_sim = g, sim
+        if best:
+            ov = profile["vectors"][best["appid"]]
+            shared = sorted(set(vec) & set(ov), key=lambda t: -(vec[t] * ov[t] * (0.3 if t in GENERIC else 1)))[:4]
+    return {
+        "appid": appid,
+        "name": store.get("name") or spy.get("name"),
+        "image": store.get("header_image"),
+        "description": store.get("short_description", ""),
+        "developers": store.get("developers", [])[:2],
+        "release": (store.get("release_date") or {}).get("date", ""),
+        "genres": [g.get("description") for g in store.get("genres", [])][:3],
+        "media": media_of(store),
+        "price": {
+            "is_free": is_free,
+            "final": po.get("final_formatted") if po else None,
+            "initial": po.get("initial_formatted") if po else None,
+            "discount": po.get("discount_percent", 0) if po else 0,
+            "available": is_free or po is not None,
+        },
+        "rating": round(pos * 100 / n) if n else None,
+        "reviews": n,
+        "owners": spy.get("owners", ""),
+        "tags": list(all_tags)[:8],
+        "matched": [],
+        "why": {
+            "game": best["name"] if best and best_sim >= 0.3 else None,
+            "games": [best["name"]] if best and best_sim >= 0.3 else [],
+            "hours": best["hours"] if best and best_sim >= 0.3 else None,
+            "shared": shared,
+            "similarity": round(best_sim, 2),
+        },
+        "owned_hours": owned.get(appid),
+        "gem": 0 < n < 5000,
+        "lookup": True,
+    }

@@ -6,6 +6,7 @@
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 import os
 import sys
@@ -18,7 +19,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from recommender import build_profile, library_summary, recommend
+from recommender import build_profile, game_card, library_summary, recommend
+import winctl
 from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
 from summarizer import summarize
 import userdata
@@ -64,7 +66,8 @@ if os.environ.get("GAMEPICKER_FAKE_VERSION") and "--after-update" not in sys.arg
     APP_VERSION = os.environ["GAMEPICKER_FAKE_VERSION"]  # только для проверки обновления в сборке
 LAST_PING = [0.0]
 SERVER = {"srv": None}
-WEBVIEW = {"active": False, "module": None, "extra": []}
+WEBVIEW = {"active": False, "module": None, "extra": [], "main": None, "frameless": False}
+TT = {"cache": {}, "lock": threading.Lock()}
 POPUP_HOSTS = re.compile(r"^(www\.)?tiktok\.com$")
 DEFAULT_CONFIG = {
     "steam_api_key": "",
@@ -119,10 +122,12 @@ def public_config(cfg):
 
 def start_job(fn):
     job_id = uuid.uuid4().hex[:12]
-    job = {"status": "running", "progress": 0.0, "stage": "start", "detail": "", "result": None, "error": None}
+    job = {"status": "running", "progress": 0.0, "stage": "start", "detail": "", "result": None, "error": None, "cancel": False}
     JOBS[job_id] = job
 
     def progress(p, stage, detail=""):
+        if job["cancel"]:
+            raise SteamError("cancelled")
         job.update(progress=round(min(1.0, max(0.0, p)), 3), stage=stage, detail=detail)
 
     def run():
@@ -131,7 +136,10 @@ def start_job(fn):
             job["status"] = "done"
             job["progress"] = 1.0
         except SteamError as e:
-            job.update(status="error", error={"code": e.code, "detail": e.detail})
+            if e.code == "cancelled" or job["cancel"]:
+                job.update(status="cancelled", error={"code": "cancelled"})
+            else:
+                job.update(status="error", error={"code": e.code, "detail": e.detail})
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             job.update(status="error", error={"code": "internal", "detail": str(e)})
@@ -262,6 +270,21 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/update":
             info = updater.check(APP_VERSION, force=q.get("force") == "1")
             return self._send(200, {**updater.public(info), "download": dict(updater.STATE)})
+        if url.path == "/api/game":
+            cfg = load_config()
+            try:
+                return self._send(200, game_card(STATE, int(q.get("appid", "0")), cfg["country"] or "ua", q.get("lang", "ru")))
+            except SteamError as e:
+                return self._send(404 if e.code == "not_found" else 502, {"error": {"code": e.code, "detail": e.detail}})
+            except ValueError:
+                return self._send(400, {"error": {"code": "bad_request"}})
+        if url.path == "/api/tiktok":
+            try:
+                return self._send(200, {"ids": tiktok_ids(q.get("q", "").strip())})
+            except SteamError as e:
+                return self._send(200, {"ids": [], "error": e.code})
+        if url.path == "/api/win":
+            return self._send(200, {"frameless": WEBVIEW["frameless"] and WEBVIEW["active"], "rect": winctl.rect()})
         if url.path == "/api/search":
             term = q.get("q", "").strip()
             if len(term) < 2:
@@ -343,6 +366,25 @@ class Handler(BaseHTTPRequestHandler):
                 if str(aid).isdigit():
                     userdata.hide(aid)
             return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/job/cancel":
+            job = JOBS.get(str(body.get("id", "")))
+            if job and job["status"] == "running":
+                job["cancel"] = True
+            return self._send(200, {"ok": True})
+        if url.path == "/api/win":
+            act = body.get("action")
+            if act == "min":
+                winctl.minimize()
+            elif act == "max":
+                winctl.toggle_max()
+            elif act == "close":
+                threading.Thread(target=close_app, daemon=True).start()
+            elif act == "rect":
+                try:
+                    winctl.set_rect(body["x"], body["y"], body["w"], body["h"])
+                except (KeyError, TypeError, ValueError):
+                    return self._send(400, {"error": {"code": "bad_request"}})
+            return self._send(200, {"rect": winctl.rect()})
         if url.path == "/api/quit":
             def bye():
                 time.sleep(0.3)
@@ -412,6 +454,62 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not_found"})
 
 
+def close_app():
+    time.sleep(0.15)
+    for w in list(WEBVIEW["extra"]) + ([WEBVIEW["main"]] if WEBVIEW["main"] else []):
+        try:
+            w.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+TT_JS = "Array.from(document.querySelectorAll('a[href*=\"/video/\"]')).map(function(a){return a.href})"
+
+
+def tiktok_ids(query):
+    """ID видео TikTok по запросу: открываем поиск TikTok в скрытом окне и собираем ссылки на видео.
+    Сами видео потом играют через официальный встраиваемый плеер TikTok (без входа и лайков)."""
+    if not query:
+        return []
+    key = query.lower()
+    hit = TT["cache"].get(key)
+    if hit and time.time() - hit[0] < 6 * 3600 and hit[1]:
+        return hit[1]
+    if not WEBVIEW["active"] or not WEBVIEW["module"]:
+        raise SteamError("no_window")
+    with TT["lock"]:
+        wv = WEBVIEW["module"]
+        url = "https://www.tiktok.com/search/video?q=" + urllib.parse.quote(query)
+        w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, hidden=True)
+        ids = []
+        try:
+            for i in range(32):
+                time.sleep(2.5 if i == 0 else 0.6)
+                try:
+                    hrefs = w.evaluate_js(TT_JS) or []
+                except Exception:  # noqa: BLE001
+                    hrefs = []
+                for h in hrefs:
+                    m = re.search(r"/video/(\d{8,})", str(h))
+                    if m and m.group(1) not in ids:
+                        ids.append(m.group(1))
+                if len(ids) >= 30:
+                    break
+                if i % 3 == 2:
+                    try:
+                        w.evaluate_js("window.scrollBy(0, 3000)")
+                    except Exception:  # noqa: BLE001
+                        pass
+        finally:
+            try:
+                w.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        log(f"TikTok «{query}»: найдено видео {len(ids)}")
+        TT["cache"][key] = (time.time(), ids)
+        return ids
+
+
 def free_port(preferred):
     for port in [preferred] + list(range(preferred + 1, preferred + 20)):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -457,8 +555,14 @@ def run_window(url):
         return False
     shown = threading.Event()
     try:
-        win = webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
-                                    background_color="#0f0f12", text_select=True)
+        frameless = os.name == "nt" and "--frame" not in sys.argv
+        WEBVIEW["frameless"] = frameless
+        win = webview.create_window("GamePicker", url, width=1360, height=900, min_size=(480, 600),
+                                    background_color="#0f0f12", text_select=True,
+                                    frameless=frameless, easy_drag=False)
+        WEBVIEW["main"] = win
+        if frameless:
+            win.events.shown += lambda: threading.Timer(0.3, winctl.style_window).start()
         win.events.shown += shown.set
         WEBVIEW["module"] = webview
         win.events.shown += lambda: WEBVIEW.update(active=True)

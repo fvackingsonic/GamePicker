@@ -44,6 +44,13 @@ const aspectName = (a) => (I18N[S.lang].aspects || I18N.en.aspects || {})[a] || 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = (n) => Number(n || 0).toLocaleString(S.lang === "en" ? "en-US" : "ru-RU");
 const CDN = "https://cdn.cloudflare.steamstatic.com/steam/apps";
+const ICON = {
+  similar: '<svg viewBox="0 0 16 16"><path d="M8 1.5l1.4 3.6L13 6.5l-3.6 1.4L8 11.5 6.6 7.9 3 6.5l3.6-1.4zM12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor"/></svg>',
+  owned: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 8.2l1.9 1.9 3.7-3.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  hide: '<svg viewBox="0 0 16 16"><path d="M2 8s2.2-4.2 6-4.2S14 8 14 8s-2.2 4.2-6 4.2S2 8 2 8z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/><path d="M2.5 13.5l11-11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+};
+const actsHtml = (cls) => ["similar", "owned", "hide"].map((a) =>
+  `<span role="button" tabindex="0" class="act" data-act="${a}" title="${esc(t("act_" + a))}" aria-label="${esc(t("act_" + a))}">${ICON[a]}</span>`).join("");
 const headerImg = (id) => `${CDN}/${id}/header.jpg`;
 const portraitImg = (id) => `${CDN}/${id}/library_600x900.jpg`;
 const rateClass = (r) => (r >= 85 ? "g" : r >= 70 ? "m" : "b");
@@ -99,13 +106,15 @@ async function api(path, body) {
 
 async function runJob(path, body) {
   const { job } = await api(path, body);
+  S.jobId = job;
+  renderFindBtn();
   setProgress(0, "start", "");
   for (;;) {
     await new Promise((res) => setTimeout(res, 600));
     const j = await api(`/api/job?id=${job}`);
     setProgress(j.progress, j.stage, j.detail);
     if (j.status === "done") return j.result;
-    if (j.status === "error") throw j.error;
+    if (j.status === "error" || j.status === "cancelled") throw j.error || { code: "cancelled" };
   }
 }
 
@@ -137,7 +146,7 @@ function renderStatus() {
     st.textContent = t(`stage_${progressState.stage}`, { d: progressState.detail || "" });
   } else {
     $("#prog").hidden = true;
-    st.textContent = S.meta && S.results.length ? t("checked", { n: num(S.meta.checked) }) : "";
+    st.textContent = S.cancelled ? t("pick_cancelled") : S.meta && S.results.length ? t("checked", { n: num(S.meta.checked) }) : "";
   }
 }
 
@@ -188,6 +197,17 @@ function renderChips() {
   const moreOn = S.f.count !== DEFAULT_F.count;
   $("#chip-more-v").textContent = moreOn ? String(S.f.count) : "";
   $('[data-pop="more"]').classList.toggle("on", moreOn);
+  const dirty = Object.keys(S.tagState).length > 0 || ["min_price", "max_price", "min_rating", "min_reviews", "discount_only", "free_only", "gems", "count", "match"].some((k) => S.f[k] !== DEFAULT_F[k]);
+  $("#btn-reset").hidden = !dirty;
+}
+
+function resetFilters() {
+  S.f = { ...DEFAULT_F, seed_mode: S.f.seed_mode };
+  S.tagState = {};
+  saveF();
+  store("gp.tags", S.tagState);
+  closePop();
+  renderChips();
 }
 
 function toggleFlag(name) {
@@ -362,10 +382,14 @@ async function searchSeeds() {
   try { seedFound = (await api(`/api/search?q=${encodeURIComponent(q)}&lang=${S.lang}`)).items; } catch { seedFound = []; }
   if ($("#seed-input").value.trim() !== q) return;
   list.innerHTML = seedFound.length
-    ? seedFound.map((x, i) => `<li data-i="${i}" class="${i === 0 ? "on" : ""}"><img alt="" src="${esc(x.image || headerImg(x.appid))}"><span>${esc(x.name)}</span>${x.owned ? `<small>${esc(t("seed_owned", { h: num(x.hours) }))}</small>` : ""}</li>`).join("")
+    ? seedFound.map((x, i) => `<li data-i="${i}" class="${i === 0 ? "on" : ""}" title="${esc(t("search_view"))}"><img alt="" src="${esc(x.image || headerImg(x.appid))}"><span>${esc(x.name)}</span>${x.owned ? `<small>${esc(t("seed_owned", { h: num(x.hours) }))}</small>` : ""}<button class="plus" data-plus="${i}" title="${esc(t("search_add"))}" aria-label="${esc(t("search_add"))}">+</button></li>`).join("")
     : `<li class="none">${esc(t("seed_none"))}</li>`;
   list.hidden = false;
-  $$("li[data-i]", list).forEach((li) => li.addEventListener("mousedown", (e) => { e.preventDefault(); pickSeed(Number(li.dataset.i)); }));
+  $$("li[data-i]", list).forEach((li) => li.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const i = Number(li.dataset.i);
+    if (e.target.closest("[data-plus]")) pickSeed(i); else viewFound(i);
+  }));
 }
 function pickSeed(i) {
   const x = seedFound[i];
@@ -374,6 +398,23 @@ function pickSeed(i) {
   $("#seed-input").value = "";
   $("#seed-results").hidden = true;
 }
+async function viewFound(i) {
+  const x = seedFound[i];
+  if (!x) return;
+  $("#seed-results").hidden = true;
+  $("#seed-input").blur();
+  setView("picks");
+  const inGrid = S.results.find((g) => g.appid === x.appid);
+  if (inGrid) { select(inGrid); return; }
+  S.sel = { appid: x.appid, name: x.name, image: x.image, price: {}, media: { screenshots: [], movies: [] }, tags: [], loading: true };
+  $$(".card").forEach((c) => c.classList.remove("on"));
+  renderSide();
+  try {
+    const g = await api(`/api/game?appid=${x.appid}&lang=${S.lang}`);
+    if (S.sel && S.sel.appid === g.appid) select(g);
+  } catch (e) { showError(e); }
+}
+
 function seedKeys(e) {
   const items = $$("#seed-results li[data-i]");
   if (!items.length || $("#seed-results").hidden) return;
@@ -384,7 +425,8 @@ function seedKeys(e) {
     items.forEach((li, k) => li.classList.toggle("on", k === cur));
   } else if (e.key === "Enter") {
     e.preventDefault();
-    pickSeed(Number(items[Math.max(0, cur)].dataset.i));
+    const i = Number(items[Math.max(0, cur)].dataset.i);
+    if (e.shiftKey || e.ctrlKey) pickSeed(i); else viewFound(i);
   } else if (e.key === "Escape") {
     $("#seed-results").hidden = true;
   }
@@ -404,20 +446,32 @@ function collectFilters() {
   };
 }
 
+function renderFindBtn() {
+  const b = $("#btn-find");
+  b.disabled = false;
+  b.classList.toggle("cancel", S.busy);
+  b.textContent = S.busy ? t("cancel_pick") : t("find");
+}
+
+async function cancelJob() {
+  if (S.jobId) await api("/api/job/cancel", { id: S.jobId }).catch(() => {});
+}
+
 async function find(more = false) {
-  if (S.busy) return;
+  if (S.busy) { cancelJob(); return; }
   closePop();
   if (!S.config?.configured) return openSettings();
   const filters = more && S.lastFilters ? { ...S.lastFilters } : collectFilters();
   if (filters.mode === "tags" && !filters.tags.length) { openPop("tags", $('[data-pop="tags"]')); return showError({ code: "no_tags" }); }
   if (filters.mode === "games" && !filters.seeds.length) { $("#seed-input").focus(); return showError({ code: "no_seeds" }); }
+  const prev = { results: S.results, sel: S.sel, shown: new Set(S.shown), meta: S.meta, last: S.lastFilters };
   if (!more) { S.shown.clear(); S.results = []; S.sel = null; }
   filters.skip = [...S.shown];
   filters.lang = S.lang;
   S.lastFilters = filters;
   S.busy = true;
   showError(null);
-  $("#btn-find").disabled = true;
+  renderFindBtn();
   $("#btn-more").hidden = true;
   renderGrid();
   renderSide();
@@ -430,16 +484,24 @@ async function find(more = false) {
     $("#btn-more").hidden = res.items.length === 0;
     if (!S.sel && S.results.length) select(S.results[0]);
   } catch (e) {
-    showError(e);
+    if (e && e.code === "cancelled") {
+      S.results = prev.results; S.sel = prev.sel; S.shown = prev.shown; S.meta = prev.meta; S.lastFilters = prev.last;
+      S.cancelled = true;
+      $("#btn-more").hidden = !S.results.length;
+    } else showError(e);
   } finally {
     S.busy = false;
-    $("#btn-find").disabled = false;
+    S.jobId = null;
+    renderFindBtn();
     renderGrid();
+    renderSide();
     renderStatus();
+    S.cancelled = false;
   }
 }
 
 function priceText(p) {
+  if (!p || p.available === undefined) return "";
   if (p.is_free) return t("free");
   if (!p.available) return t("unavailable_short");
   return p.final || "";
@@ -447,7 +509,7 @@ function priceText(p) {
 
 function coverHtml(g) {
   const badge = g.gem ? `<span class="badge">💎 ${esc(t("gem_badge"))}</span>` : "";
-  return `<div class="cover">${badge}<img class="main" alt="" loading="lazy" src="${esc(portraitImg(g.appid))}" data-fallback="${esc(g.image || headerImg(g.appid))}"></div>`;
+  return `<div class="cover">${badge}<div class="acts">${actsHtml()}</div><img class="main" alt="" loading="lazy" src="${esc(portraitImg(g.appid))}" data-fallback="${esc(g.image || headerImg(g.appid))}"></div>`;
 }
 function wireCovers(root) {
   $$("img.main[data-fallback]", root).forEach((img) => {
@@ -492,7 +554,12 @@ function renderGrid() {
     </button>`;
   }).join("");
   wireCovers(grid);
-  $$(".card[data-i]", grid).forEach((c) => c.addEventListener("click", () => select(S.results[Number(c.dataset.i)])));
+  $$(".card[data-i]", grid).forEach((c) => c.addEventListener("click", (e) => {
+    const g = S.results[Number(c.dataset.i)];
+    const act = e.target.closest("[data-act]");
+    if (act) { e.stopPropagation(); doAct(act.dataset.act, g); return; }
+    select(g);
+  }));
 }
 
 function metaLine() {
@@ -533,6 +600,8 @@ function renderSide() {
   $("#side-body").scrollTop = 0;
 
   $("#s-title").textContent = g.name;
+  $("#s-acts").innerHTML = actsHtml();
+  $$("[data-act]", $("#s-acts")).forEach((b) => b.addEventListener("click", () => doAct(b.dataset.act, S.sel)));
   $("#s-dev").textContent = [g.developers?.[0], g.release].filter(Boolean).join(", ");
   const p = g.price;
   $("#s-price").innerHTML = esc(priceText(p)) + (p.discount > 0 ? `<s>${esc(p.initial)} −${p.discount}%</s>` : "");
@@ -550,6 +619,7 @@ function renderSide() {
     facts.push(cell("blue", "★", t("why_you"), main));
   }
   if (g.rating != null) facts.push(cell(g.rating >= 85 ? "green" : g.rating >= 70 ? "amber" : "red", "✓", t("rating_line", { r: g.rating }), t("reviews_from", { n: num(g.reviews) })));
+  if (g.owned_hours != null) facts.push(cell("green", "✓", t("owned_line"), t("owned_hours", { h: num(g.owned_hours) })));
   if (g.gem) facts.push(cell("violet", "💎", t("gems"), t("gem_line")));
   $("#s-facts").innerHTML = facts.join("");
 
@@ -670,16 +740,49 @@ function showHero(i, play) {
 }
 
 // ---------- действия
-async function openTikTok(g) {
-  const url = `https://www.tiktok.com/search/video?q=${encodeURIComponent(g.name)}`;
-  try { const r = await api("/api/window", { url, title: `TikTok: ${g.name}` }); if (r.opened) return; } catch { /* браузер */ }
-  window.open(url, "_blank", "noopener");
+function doAct(act, g) {
+  if (!g) return;
+  if (act === "similar") { addSeed({ appid: g.appid, name: g.name, image: g.image }); find(false); }
+  else if (act === "owned") hideGame(g, "owned");
+  else if (act === "hide") hideGame(g, "not_interested");
 }
+
+const TT = { ids: [], i: 0, game: null, wheelAt: 0 };
+const ttPlayer = (id) => `https://www.tiktok.com/player/v1/${id}?autoplay=1&loop=1&music_info=0&description=1&rel=0&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=0&timestamp=1&native_context_menu=0&closed_caption=0`;
+
+async function openTikTok(g) {
+  TT.game = g; TT.ids = []; TT.i = 0;
+  $("#tt-title").textContent = `TikTok: ${g.name}`;
+  $("#tt-count").textContent = "";
+  $("#tt-phone").innerHTML = `<div class="tt-msg"><div class="tt-spin"></div>${esc(t("tt_loading"))}</div>`;
+  $("#tt-prev").disabled = $("#tt-next").disabled = true;
+  if (!$("#tt").open) $("#tt").showModal();
+  let r = { ids: [] };
+  try { r = await api(`/api/tiktok?q=${encodeURIComponent(g.name)}`); } catch { /* ниже запасной путь */ }
+  if (TT.game !== g || !$("#tt").open) return;
+  if (!r.ids || !r.ids.length) {
+    const url = `https://www.tiktok.com/search/video?q=${encodeURIComponent(g.name)}`;
+    $("#tt-phone").innerHTML = `<div class="tt-msg">${esc(t(r.error === "no_window" ? "tt_browser" : "tt_none"))}<br><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${esc(t("tt_open_site"))}</a></div>`;
+    return;
+  }
+  TT.ids = r.ids;
+  showTT(0);
+}
+function showTT(i) {
+  if (!TT.ids.length) return;
+  TT.i = Math.max(0, Math.min(TT.ids.length - 1, i));
+  $("#tt-phone").innerHTML = `<iframe src="${ttPlayer(TT.ids[TT.i])}" allow="autoplay; encrypted-media; fullscreen" referrerpolicy="strict-origin-when-cross-origin" title="TikTok"></iframe>`;
+  $("#tt-count").textContent = `${TT.i + 1} / ${TT.ids.length}`;
+  $("#tt-prev").disabled = TT.i === 0;
+  $("#tt-next").disabled = TT.i === TT.ids.length - 1;
+}
+function closeTT() { $("#tt-phone").innerHTML = ""; TT.game = null; if ($("#tt").open) $("#tt").close(); }
 
 async function hideGame(g, reason) {
   try { S.hidden = (await api("/api/hidden", { appid: g.appid, name: g.name, image: g.image || "", reason })).items; }
   catch (e) { showError(e); return; }
   const idx = S.results.indexOf(g);
+  if (idx < 0) { S.sel = null; renderSide(); renderHidden(); return; }
   const card = $(`.card[data-i="${idx}"]`);
   if (card) card.classList.add("leaving");
   setTimeout(() => {
@@ -845,16 +948,17 @@ async function loadLibrary() {
   if (S.busy) return;
   S.busy = true;
   showError(null);
-  $("#btn-find").disabled = true;
+  renderFindBtn();
   try {
     S.library = await runJob("/api/library", {});
     renderTaste();
   } catch (e) {
-    showError(e);
+    if (!e || e.code !== "cancelled") showError(e);
     if (e && ["bad_key", "not_configured", "profile_not_found"].includes(e.code)) openSettings();
   } finally {
     S.busy = false;
-    $("#btn-find").disabled = false;
+    S.jobId = null;
+    renderFindBtn();
     renderStatus(); renderGrid();
   }
 }
@@ -902,8 +1006,87 @@ async function doUpdate() {
   }, 700);
 }
 
+// ---------------------------------------------------------------- своё окно (без рамки Windows)
+const WIN = { frameless: false, rect: null, max: false };
+async function initWindow() {
+  for (let k = 0; k < 6 && !WIN.frameless; k++) {
+    const r = await api("/api/win").catch(() => null);
+    if (r && r.frameless) { WIN.frameless = true; setWinRect(r.rect); break; }
+    await new Promise((res) => setTimeout(res, 700));
+  }
+  if (!WIN.frameless) return;
+  document.body.classList.add("frameless");
+  $("#winbtns").hidden = false;
+  $("#edges").hidden = false;
+}
+function setWinRect(r) {
+  if (!r) return;
+  WIN.rect = r; WIN.max = !!r.maximized;
+  $("#edges").hidden = !WIN.frameless || WIN.max;
+  $("#win-max").innerHTML = WIN.max
+    ? '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="1.5" y="3.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4 3.5V3a1.5 1.5 0 0 1 1.5-1.5H9A1.5 1.5 0 0 1 10.5 3v3.5A1.5 1.5 0 0 1 9 8h-.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>'
+    : '<svg viewBox="0 0 12 12" width="12" height="12"><rect x="2" y="2" width="8" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+  $("#win-max").title = t(WIN.max ? "win_restore" : "win_max");
+}
+async function winAction(action) {
+  const r = await api("/api/win", { action }).catch(() => null);
+  if (r) setWinRect(r.rect);
+}
+function bindEdges() {
+  $$("#edges i").forEach((el) => el.addEventListener("pointerdown", async (e) => {
+    if (!WIN.frameless || WIN.max) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    const r = (await api("/api/win").catch(() => null))?.rect || WIN.rect;
+    if (!r) return;
+    const edge = el.dataset.edge, dpr = window.devicePixelRatio || 1;
+    const sx = e.screenX, sy = e.screenY;
+    let pending = null, sending = false;
+    document.body.classList.add("resizing");
+    const send = async () => {
+      if (sending || !pending) return;
+      sending = true; const p = pending; pending = null;
+      await api("/api/win", { action: "rect", ...p }).catch(() => {});
+      sending = false; if (pending) send();
+    };
+    const move = (ev) => {
+      const dx = (ev.screenX - sx) * dpr, dy = (ev.screenY - sy) * dpr;
+      let { x, y, w, h } = r;
+      if (edge.includes("e")) w = r.w + dx;
+      if (edge.includes("s")) h = r.h + dy;
+      if (edge.includes("w")) { w = r.w - dx; x = r.x + dx; }
+      if (edge.includes("n")) { h = r.h - dy; y = r.y + dy; }
+      pending = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+      send();
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing");
+      setTimeout(() => api("/api/win").then((x) => setWinRect(x.rect)).catch(() => {}), 150);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  }));
+}
+
 // ---------------------------------------------------------------- события
 function bind() {
+  bindEdges();
+  $$("[data-win]").forEach((b) => b.addEventListener("click", () => winAction(b.dataset.win)));
+  $("#top").addEventListener("dblclick", (e) => { if (WIN.frameless && (e.target.id === "top" || e.target.id === "drag")) winAction("max"); });
+  $("#btn-reset").addEventListener("click", resetFilters);
+  $("#tt-close").addEventListener("click", closeTT);
+  $("#tt").addEventListener("close", () => { $("#tt-phone").innerHTML = ""; TT.game = null; });
+  $("#tt-prev").addEventListener("click", () => showTT(TT.i - 1));
+  $("#tt-next").addEventListener("click", () => showTT(TT.i + 1));
+  $("#tt").addEventListener("wheel", (e) => {
+    if (!TT.ids.length) return;
+    const now = Date.now();
+    if (now - TT.wheelAt < 450 || Math.abs(e.deltaY) < 20) return;
+    TT.wheelAt = now;
+    showTT(TT.i + (e.deltaY > 0 ? 1 : -1));
+  }, { passive: true });
   $$("#lang button").forEach((b) => b.addEventListener("click", () => { S.lang = b.dataset.lang; store("gp.lang", S.lang); applyI18n(); }));
   $("#btn-theme").addEventListener("click", cycleTheme);
   $$(".nav button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
@@ -920,9 +1103,6 @@ function bind() {
   si.addEventListener("blur", () => setTimeout(() => ($("#seed-results").hidden = true), 160));
 
   $("#s-tiktok").addEventListener("click", () => S.sel && openTikTok(S.sel));
-  $("#s-similar").addEventListener("click", () => { if (S.sel) { addSeed({ appid: S.sel.appid, name: S.sel.name, image: S.sel.image }); find(false); } });
-  $("#s-owned").addEventListener("click", () => S.sel && hideGame(S.sel, "owned"));
-  $("#s-hide").addEventListener("click", () => S.sel && hideGame(S.sel, "not_interested"));
 
   document.addEventListener("click", (e) => {
     // кнопка внутри окошка могла перерисоваться и выпасть из DOM — это клик внутри, не закрываем
@@ -932,6 +1112,11 @@ function bind() {
   window.addEventListener("resize", closePop);
   $("#grid-scroll").addEventListener("scroll", closePop);
   document.addEventListener("keydown", (e) => {
+    if ($("#tt").open) {
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); showTT(TT.i + 1); }
+      if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); showTT(TT.i - 1); }
+      return;
+    }
     if ($("#viewer").open) {
       if (e.key === "ArrowLeft") { e.preventDefault(); showViewer(V.i - 1); }
       if (e.key === "ArrowRight") { e.preventDefault(); showViewer(V.i + 1); }
@@ -967,6 +1152,7 @@ function bind() {
 
 async function init() {
   bind();
+  initWindow();
   setMode(S.mode);
   applyI18n();
   try {

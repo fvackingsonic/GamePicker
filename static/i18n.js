@@ -601,3 +601,33 @@ Object.assign(I18N.uk, { seed_blend: "Змішати все", seed_each: "Схо
 Object.assign(I18N.en, { seed_blend: "Blend all", seed_each: "Similar to each", seed_blend_hint: "Games where everything you picked comes together", seed_each_hint: "Similar games for each pick, taking turns",
   seeds_label_blend: "Blending:", why_blend: "Combines what's in {games}", and: "and",
   meta_blend: "{n} games where {games} come together", meta_each: "{n} games similar to {games} separately" });
+Object.assign(I18N.ru, {
+  act_similar: "Найти похожие", act_owned: "Уже есть", act_hide: "Не интересно",
+  search_ph: "Найти игру…", search_view: "Посмотреть игру", search_add: "Искать похожие на неё",
+  cancel_pick: "Отменить", pick_cancelled: "Подбор отменён", reset_all: "Сбросить фильтры",
+  win_min: "Свернуть", win_max: "Развернуть", win_restore: "Восстановить", win_close: "Закрыть",
+  tt_loading: "Ищу видео об игре в TikTok…", tt_none: "Не удалось найти видео. TikTok мог попросить проверку — открой поиск на сайте.",
+  tt_browser: "Ленту видео можно смотреть в окне GamePicker. Сейчас он открыт в браузере — открой поиск на сайте TikTok.",
+  tt_open_site: "Открыть TikTok", tt_prev: "Предыдущее видео", tt_next: "Следующее видео", tt_hint: "Колесо мыши или стрелки ↑ ↓ листают видео",
+});
+Object.assign(I18N.uk, {
+  act_similar: "Знайти схожі", act_owned: "Вже є", act_hide: "Не цікаво",
+  search_ph: "Знайти гру…", search_view: "Переглянути гру", search_add: "Шукати схожі на неї",
+  cancel_pick: "Скасувати", pick_cancelled: "Добір скасовано", reset_all: "Скинути фільтри",
+  win_min: "Згорнути", win_max: "Розгорнути", win_restore: "Відновити", win_close: "Закрити",
+  tt_loading: "Шукаю відео про гру в TikTok…", tt_none: "Не вдалося знайти відео. TikTok міг попросити перевірку — відкрий пошук на сайті.",
+  tt_browser: "Стрічку відео можна дивитися у вікні GamePicker. Зараз він відкритий у браузері — відкрий пошук на сайті TikTok.",
+  tt_open_site: "Відкрити TikTok", tt_prev: "Попереднє відео", tt_next: "Наступне відео", tt_hint: "Коліщатко миші або стрілки ↑ ↓ гортають відео",
+});
+Object.assign(I18N.en, {
+  act_similar: "Find similar", act_owned: "Already have", act_hide: "Not interested",
+  search_ph: "Find a game…", search_view: "View game", search_add: "Find games like this",
+  cancel_pick: "Cancel", pick_cancelled: "Search cancelled", reset_all: "Reset filters",
+  win_min: "Minimize", win_max: "Maximize", win_restore: "Restore", win_close: "Close",
+  tt_loading: "Looking for TikTok videos about this game…", tt_none: "Couldn't find videos. TikTok may have asked for a check — open the search on the site.",
+  tt_browser: "The video feed works in the GamePicker window. It's open in a browser now — open the search on TikTok.",
+  tt_open_site: "Open TikTok", tt_prev: "Previous video", tt_next: "Next video", tt_hint: "Mouse wheel or ↑ ↓ arrows switch videos",
+});
+Object.assign(I18N.ru, { owned_line: "Уже есть в библиотеке", owned_hours: "наиграно {h} ч" });
+Object.assign(I18N.uk, { owned_line: "Вже є в бібліотеці", owned_hours: "награно {h} год" });
+Object.assign(I18N.en, { owned_line: "Already in your library", owned_hours: "{h} h played" });
