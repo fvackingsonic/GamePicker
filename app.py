@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from recommender import build_profile, library_summary, recommend
 from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
 from summarizer import summarize
+import userdata
 
 LOG_PATH = os.path.join(DATA_DIR, "gamepicker.log")
 # В exe (и вообще без консоли) весь вывод пишем в лог-файл
@@ -53,7 +54,7 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.1.0"
 LAST_PING = [0.0]
 DEFAULT_CONFIG = {
     "steam_api_key": "",
@@ -158,6 +159,7 @@ def job_recommend(filters):
             inner = progress
         cfg = load_config()
         filters.setdefault("cc", cfg["country"] or "ua")
+        filters["skip"] = list(filters.get("skip") or []) + list(userdata.excluded_ids())
         return recommend(STATE, filters, inner)
     return run
 
@@ -211,6 +213,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, public_config(load_config()))
         if url.path == "/api/library":
             return self._send(200, {"summary": STATE["summary"]})
+        if url.path == "/api/hidden":
+            return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/family":
+            return self._send(200, userdata.family_status())
         if url.path == "/api/job":
             job = JOBS.get(q.get("id", ""))
             return self._send(200 if job else 404, job or {"error": "no_job"})
@@ -250,6 +256,33 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, public_config(cfg))
         if url.path == "/api/library":
             return self._send(200, {"job": start_job(job_library)})
+        if url.path == "/api/hidden":
+            try:
+                userdata.hide(body["appid"], body.get("name", ""), body.get("image", ""), body.get("reason", ""))
+            except (KeyError, ValueError, TypeError):
+                return self._send(400, {"error": {"code": "bad_request"}})
+            return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/hidden/remove":
+            if body.get("all"):
+                userdata.unhide(reason=body.get("reason"))
+            elif body.get("appid") is not None:
+                userdata.unhide(appid=body["appid"])
+            return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/hidden/import":  # перенос старого списка из браузера
+            for aid in body.get("appids", []):
+                if str(aid).isdigit():
+                    userdata.hide(aid)
+            return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/family":
+            if body.get("clear"):
+                userdata.family_clear()
+                return self._send(200, userdata.family_status())
+            cfg = load_config()
+            try:
+                steamid = STATE["steamid"] or resolve_steamid(cfg["steam_api_key"], cfg["steam_profile"])
+                return self._send(200, userdata.family_import(body.get("token", ""), steamid))
+            except SteamError as e:
+                return self._send(400, {"error": {"code": e.code, "detail": e.detail}})
         if url.path == "/api/recommend":
             return self._send(200, {"job": start_job(job_recommend(body))})
         return self._send(404, {"error": "not_found"})
@@ -299,9 +332,10 @@ def run_window(url):
     shown = threading.Event()
     try:
         win = webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
-                                    background_color="#0f1115", text_select=True)
+                                    background_color="#e9e6f2", text_select=True)
         win.events.shown += shown.set
         kwargs = {"gui": "edgechromium"} if os.name == "nt" else {}
+        kwargs.update(private_mode=False, storage_path=os.path.join(DATA_DIR, "webview"))
         webview.start(**kwargs)
     except Exception:  # noqa: BLE001 — нет WebView2 и т.п.
         log("Окно не открылось:\n" + traceback.format_exc())

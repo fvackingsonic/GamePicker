@@ -9,14 +9,18 @@ const S = {
   lang: load("gp.lang", "ru"),
   config: null,
   library: null,
+  family: { count: 0, updated: 0 },
   mode: load("gp.mode", "library"),
   match: "any",
-  tagState: load("gp.tags", {}),        // tag -> "inc" | "exc"
-  hidden: new Set(load("gp.hidden", [])),
+  tagState: load("gp.tags", {}),      // tag -> "inc" | "exc"
+  hidden: [],                          // [{appid,name,image,reason,ts}] — хранится на диске
+  hiddenFilter: "",
   shown: new Set(),
   results: [],
+  meta: null,
   lastFilters: null,
   busy: false,
+  tab: "picks",
 };
 
 // ---------------------------------------------------------------- i18n
@@ -29,6 +33,8 @@ function t(key, vars) {
 const tagName = (tag) => (TAG_I18N[S.lang] || {})[tag] || tag;
 const aspectName = (a) => (I18N[S.lang].aspects || {})[a] || a;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = (n) => Number(n || 0).toLocaleString(S.lang === "en" ? "en-US" : "ru-RU");
+const cdnCover = (id) => `https://cdn.cloudflare.steamstatic.com/steam/apps/${id}/header.jpg`;
 
 function applyI18n() {
   document.documentElement.lang = S.lang;
@@ -38,8 +44,9 @@ function applyI18n() {
   $("#mode-hint").textContent = t(S.mode === "tags" ? "mode_tags_hint" : "mode_library_hint");
   renderLibrary();
   renderTags();
-  renderHiddenInfo();
   renderResults();
+  renderHidden();
+  renderFamilyStatus();
 }
 
 // ---------------------------------------------------------------- API
@@ -66,8 +73,9 @@ async function runJob(path, body) {
 function errText(e) {
   const code = e && e.code;
   const key = `err_${code}`;
-  const msg = I18N[S.lang][key] ? t(key) : `${t("err_generic")}: ${code || "?"}`;
-  return e && e.detail && !I18N[S.lang][key] ? `${msg} (${e.detail})` : msg;
+  const known = I18N[S.lang][key] || I18N.en[key];
+  const msg = known ? t(key) : `${t("err_generic")}: ${code || "?"}`;
+  return e && e.detail && !known ? `${msg} (${e.detail})` : msg;
 }
 
 function showError(e) {
@@ -79,10 +87,20 @@ function showError(e) {
 
 function showProgress(p, stage, detail) {
   $("#progress").hidden = false;
-  $("#progress-bar").style.width = `${Math.round((p || 0) * 100)}%`;
+  $("#progress-bar").style.width = `${Math.max(4, Math.round((p || 0) * 100))}%`;
   $("#progress-text").textContent = t(`stage_${stage}`, { d: detail || "" });
 }
 const hideProgress = () => ($("#progress").hidden = true);
+
+// ---------------------------------------------------------------- tabs
+function setTab(tab) {
+  S.tab = tab;
+  $$(".tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  $$(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  $("#view-picks").hidden = tab !== "picks";
+  $("#view-hidden").hidden = tab !== "hidden";
+  if (tab === "hidden") renderHidden();
+}
 
 // ---------------------------------------------------------------- settings
 function openSettings() {
@@ -96,8 +114,10 @@ function openSettings() {
   f.anthropic_api_key.placeholder = c.anthropic_key_mask ? `${c.anthropic_key_mask} (${t("key_saved")})` : "sk-ant-…";
   f.claude_model.value = c.claude_model || "claude-haiku-5-5";
   f.anthropic_workspace.value = c.anthropic_workspace || "";
-  $("#settings-err").textContent = "";
+  $("#settings-err").hidden = true;
+  $("#family-msg").textContent = "";
   $("#settings-cancel").hidden = !c.configured;
+  renderFamilyStatus();
   $("#settings").showModal();
 }
 
@@ -114,6 +134,7 @@ async function saveSettings(ev) {
   };
   if ((!body.steam_api_key && !S.config?.steam_key_mask) || !body.steam_profile) {
     $("#settings-err").textContent = t("err_not_configured");
+    $("#settings-err").hidden = false;
     return;
   }
   S.config = await api("/api/config", body);
@@ -123,6 +144,36 @@ async function saveSettings(ev) {
   S.shown.clear();
   renderResults();
   loadLibrary();
+}
+
+async function importFamily() {
+  const token = $("#family-token").value.trim();
+  const msg = $("#family-msg");
+  if (!token) { msg.textContent = t("err_family_token"); return; }
+  $("#btn-family").disabled = true;
+  msg.textContent = "…";
+  try {
+    S.family = await api("/api/family", { token });
+    msg.textContent = t("family_done", { n: num(S.family.count) });
+    $("#family-token").value = "";
+    renderFamilyStatus();
+    renderLibrary();
+  } catch (e) {
+    msg.textContent = errText(e);
+  } finally {
+    $("#btn-family").disabled = false;
+  }
+}
+
+async function clearFamily() {
+  S.family = await api("/api/family", { clear: true });
+  $("#family-msg").textContent = t("family_cleared");
+  renderFamilyStatus();
+  renderLibrary();
+}
+
+function renderFamilyStatus() {
+  $("#family-status").textContent = S.family.count ? t("family_status", { n: num(S.family.count) }) : "";
 }
 
 // ---------------------------------------------------------------- library
@@ -137,11 +188,12 @@ async function loadLibrary() {
     renderTags();
   } catch (e) {
     showError(e);
-    if (e && (e.code === "bad_key" || e.code === "not_configured" || e.code === "profile_not_found")) openSettings();
+    if (e && ["bad_key", "not_configured", "profile_not_found"].includes(e.code)) openSettings();
   } finally {
     S.busy = false;
     $("#btn-find").disabled = false;
     hideProgress();
+    renderResults();
   }
 }
 
@@ -149,16 +201,13 @@ function renderLibrary() {
   const L = S.library;
   $("#lib-card").hidden = !L;
   if (!L) return;
-  $("#lib-stats").innerHTML = `
-    <div><b>${L.game_count}</b><span>${esc(t("games"))}</span></div>
-    <div><b>${L.total_hours.toLocaleString()}</b><span>${esc(t("hours_total"))}</span></div>
-    <div><b>${L.unplayed}</b><span>${esc(t("unplayed"))}</span></div>`;
-  const tags = L.top_tags.slice(0, 10);
-  $("#lib-tags").innerHTML = tags.map((x) =>
-    `<div class="b" data-tag="${esc(x.tag)}" title="${esc(x.tag)}"><span>${esc(tagName(x.tag))}</span><i style="width:${Math.max(4, x.w * 100)}%"></i></div>`).join("");
-  $$("#lib-tags .b").forEach((el) => el.addEventListener("click", () => cycleTag(el.dataset.tag, "inc")));
-  $("#lib-games").innerHTML = L.top_games.slice(0, 8).map((g) =>
-    `<li>${esc(g.name)} <span>· ${g.hours} ${esc(t("h"))}</span></li>`).join("");
+  const fam = S.family.count ? t("taste_family", { n: num(S.family.count) }) : "";
+  $("#taste-line").innerHTML = t("taste_line", { games: num(L.game_count), hours: num(L.total_hours), family: esc(fam) });
+  const tags = L.top_tags.filter((x) => !["Singleplayer", "Multiplayer", "Indie", "Action", "Adventure"].includes(x.tag)).slice(0, 8);
+  $("#lib-tags").innerHTML = tags.map((x) => `<button type="button" data-tag="${esc(x.tag)}" title="${esc(x.tag)}">${esc(tagName(x.tag))}</button>`).join("");
+  $$("#lib-tags button").forEach((el) => el.addEventListener("click", () => cycleTag(el.dataset.tag, "inc")));
+  $("#lib-games").innerHTML = L.top_games.slice(0, 10).map((g) =>
+    `<li>${esc(g.name)} <span>${num(g.hours)} ${esc(t("h"))}</span></li>`).join("");
 }
 
 // ---------------------------------------------------------------- tags
@@ -172,12 +221,11 @@ function renderTags() {
   const q = $("#tag-search").value.trim().toLowerCase();
   const { list, fav } = allTags();
   const filtered = list.filter((tag) => !q || tag.toLowerCase().includes(q) || tagName(tag).toLowerCase().includes(q));
-  // выбранные — сверху
   filtered.sort((a, b) => (S.tagState[b] ? 1 : 0) - (S.tagState[a] ? 1 : 0));
   const box = $("#tag-chips");
   box.innerHTML = filtered.map((tag) => {
     const st = S.tagState[tag] || "";
-    return `<button class="chip ${st} ${fav.has(tag) ? "fav" : ""}" data-tag="${esc(tag)}" title="${esc(tag)}">${esc(tagName(tag))}</button>`;
+    return `<button type="button" class="chip ${st} ${fav.has(tag) ? "fav" : ""}" data-tag="${esc(tag)}" title="${esc(tag)}" aria-pressed="${!!st}">${esc(tagName(tag))}</button>`;
   }).join("");
   $$(".chip", box).forEach((el) => el.addEventListener("click", () => cycleTag(el.dataset.tag)));
   $("#match-wrap").hidden = !(S.mode === "tags" && Object.values(S.tagState).filter((v) => v === "inc").length > 1);
@@ -218,22 +266,21 @@ async function find(more = false) {
   const filters = more && S.lastFilters ? { ...S.lastFilters } : collectFilters();
   if (filters.mode === "tags" && !filters.tags.length) return showError({ code: "no_tags" });
   if (!more) S.shown.clear();
-  filters.skip = [...S.hidden, ...S.shown];
+  filters.skip = [...S.shown];
   filters.lang = S.lang;
   S.lastFilters = filters;
   S.busy = true;
   showError(null);
   $("#btn-find").disabled = true;
   $("#btn-more").hidden = true;
-  if (!more) { S.results = []; renderResults(); }
-  $("#placeholder").hidden = true;
+  if (!more) { S.results = []; }
+  renderResults();
   try {
     const res = await runJob("/api/recommend", filters);
     if (!S.library) { const r = await api("/api/library"); S.library = r.summary; renderLibrary(); renderTags(); }
     res.items.forEach((g) => S.shown.add(g.appid));
     S.results = more ? [...S.results, ...res.items] : res.items;
     S.meta = res;
-    renderResults();
     $("#btn-more").hidden = res.items.length === 0;
   } catch (e) {
     showError(e);
@@ -241,73 +288,73 @@ async function find(more = false) {
     S.busy = false;
     $("#btn-find").disabled = false;
     hideProgress();
+    renderResults();
   }
 }
 
 function priceHtml(p) {
-  if (p.is_free) return `<span>${esc(t("free"))}</span>`;
+  if (p.is_free) return esc(t("free"));
   if (!p.available) return `<span class="na">${esc(t("unavailable"))}</span>`;
-  if (p.discount > 0) return `<span><span class="disc">−${p.discount}%</span>${esc(p.final)}</span><s>${esc(p.initial)}</s>`;
-  return `<span>${esc(p.final)}</span>`;
+  if (p.discount > 0) return `${esc(p.final)}<s>${esc(p.initial)}</s>`;
+  return esc(p.final);
 }
 
 function renderResults() {
   const box = $("#results");
   box.innerHTML = "";
-  const tpl = $("#card-tpl");
-  $("#placeholder").hidden = S.results.length > 0 || S.busy;
-  if (S.lastFilters && !S.results.length && !S.busy) {
-    $("#placeholder").textContent = t("empty");
-  } else {
-    $("#placeholder").textContent = t("start_hint");
-  }
-  $("#results-meta").textContent = S.meta && S.results.length ? t("checked", { n: S.meta.checked.toLocaleString() }) : "";
+  const ph = $("#placeholder");
+  ph.hidden = S.results.length > 0 || S.busy;
+  const nothing = S.lastFilters && !S.results.length;
+  $("#placeholder-title").textContent = t(nothing ? "empty_none" : "empty_title");
+  $("#placeholder-text").textContent = t(nothing ? "empty" : "start_hint");
+  $("#results-meta").textContent = S.meta && S.results.length ? t("checked", { n: num(S.meta.checked) }) : "";
   const wanted = new Set(Object.entries(S.tagState).filter(([, v]) => v === "inc").map(([k]) => k));
+  const tpl = $("#ticket-tpl");
 
   for (const g of S.results) {
     const el = tpl.content.firstElementChild.cloneNode(true);
     const storeUrl = `https://store.steampowered.com/app/${g.appid}/`;
     $(".cover", el).href = storeUrl;
-    $(".cover img", el).src = g.image || `https://cdn.cloudflare.steamstatic.com/steam/apps/${g.appid}/header.jpg`;
-    $(".name", el).textContent = g.name;
-    $(".price", el).innerHTML = priceHtml(g.price);
-    const cls = g.rating >= 85 ? "g" : g.rating >= 70 ? "m" : "b";
-    $(".meta", el).innerHTML = [
-      g.rating != null ? `<span class="score ${cls}">${g.rating}% ${esc(t("positive"))}</span>` : "",
-      `<span>${g.reviews.toLocaleString()} ${esc(t("reviews_word"))}</span>`,
-      g.release ? `<span>${esc(g.release)}</span>` : "",
-      g.gem ? `<span class="badge">💎 ${esc(t("gem_badge"))}</span>` : "",
-    ].join("");
-    // описание из магазина бывает с HTML — разбираем в <template> (там ничего не исполняется) и берём только текст
+    const img = $(".cover img", el);
+    img.src = g.image || cdnCover(g.appid);
+    img.alt = g.name;
+
+    const stickers = [];
+    if (g.price.discount > 0) stickers.push(`<span class="sticker sale">−${g.price.discount}%</span>`);
+    if (g.gem) stickers.push(`<span class="sticker gem">${esc(t("gem_badge"))}</span>`);
+    $(".stickers", el).innerHTML = stickers.join("");
+
+    $(".t-name", el).textContent = g.name;
+    $(".t-sub", el).textContent = [g.developers?.[0], g.release].filter(Boolean).join(", ");
     const tmp = document.createElement("template");
     tmp.innerHTML = g.description || "";
-    $(".desc", el).textContent = tmp.content.textContent.trim();
+    $(".t-desc", el).textContent = tmp.content.textContent.trim();
+
     if (g.why && g.why.game) {
       const shared = g.why.shared.map(tagName).join(", ");
-      $(".why", el).innerHTML = `${esc(t("why"))} <b>${esc(g.why.game)}</b> (${g.why.hours} ${esc(t("h"))} ${esc(t("you_played"))})` +
-        (shared ? `<br><span class="muted">${esc(t("common"))}: ${esc(shared)}</span>` : "") +
-        (g.matched && g.matched.length ? `<br><span class="muted">${esc(t("matched"))}: ${esc(g.matched.map(tagName).join(", "))}</span>` : "");
+      $(".note", el).innerHTML = esc(t("note_why", { game: g.why.game, h: num(g.why.hours) })) +
+        (shared ? `<small>${esc(t("note_common", { tags: shared }))}</small>` : "");
     } else {
-      $(".why", el).hidden = true;
+      $(".note", el).hidden = true;
     }
-    $(".tags", el).innerHTML = g.tags.slice(0, 7).map((tag) =>
-      `<span class="chip static ${wanted.has(tag) ? "hl" : ""}">${esc(tagName(tag))}</span>`).join("");
+    $(".t-tags", el).innerHTML = g.tags.slice(0, 7).map((tag) =>
+      `<span class="${wanted.has(tag) ? "hl" : ""}">${esc(tagName(tag))}</span>`).join("");
+
+    $(".stub-price", el).innerHTML = priceHtml(g.price);
+    const cls = g.rating >= 85 ? "g" : g.rating >= 70 ? "m" : "b";
+    $(".stub-score", el).innerHTML = g.rating != null
+      ? `<b class="${cls}">${g.rating}%</b>${esc(t("reviews_from", { n: num(g.reviews) }))}` : "";
 
     const sumBtn = $(".act-summary", el);
     sumBtn.textContent = t("what_players_say");
     sumBtn.addEventListener("click", () => toggleSummary(g, el));
     $(".act-steam", el).href = storeUrl;
-    $(".act-steam", el).textContent = t("open_steam");
     $(".act-app", el).href = `steam://store/${g.appid}`;
     $(".act-app", el).textContent = t("open_app");
-    const hideBtn = $(".act-hide", el);
-    hideBtn.textContent = t("not_interested");
-    hideBtn.addEventListener("click", () => {
-      S.hidden.add(g.appid);
-      store("gp.hidden", [...S.hidden]);
-      el.classList.add("leaving");
-      setTimeout(() => { S.results = S.results.filter((x) => x.appid !== g.appid); renderResults(); renderHiddenInfo(); }, 200);
-    });
+    $(".act-owned", el).textContent = t("owned_btn");
+    $(".act-owned", el).addEventListener("click", () => hideGame(g, "owned", el));
+    $(".act-hide", el).textContent = t("not_interested");
+    $(".act-hide", el).addEventListener("click", () => hideGame(g, "not_interested", el));
     if (g._summary) { $(".summary", el).hidden = false; $(".summary", el).innerHTML = summaryHtml(g._summary); sumBtn.textContent = t("hide_summary"); }
     box.appendChild(el);
   }
@@ -318,7 +365,7 @@ async function toggleSummary(g, el) {
   const btn = $(".act-summary", el);
   if (!box.hidden) { box.hidden = true; g._summary = null; btn.textContent = t("what_players_say"); return; }
   box.hidden = false;
-  box.innerHTML = `<span class="muted">${esc(t("loading_summary"))}</span>`;
+  box.innerHTML = `<span class="hint">${esc(t("loading_summary"))}</span>`;
   btn.disabled = true;
   try {
     const s = await api(`/api/summary?appid=${g.appid}&lang=${S.lang}&name=${encodeURIComponent(g.name)}`);
@@ -326,7 +373,7 @@ async function toggleSummary(g, el) {
     box.innerHTML = summaryHtml(s);
     btn.textContent = t("hide_summary");
   } catch (e) {
-    box.innerHTML = `<span class="err">${esc(errText(e))}</span>`;
+    box.innerHTML = `<div class="err">${esc(errText(e))}</div>`;
   } finally {
     btn.disabled = false;
   }
@@ -334,42 +381,80 @@ async function toggleSummary(g, el) {
 
 function summaryHtml(s) {
   const parts = [];
+  if (s.ai_error) parts.push(`<div class="err">${esc(t("ai_failed"))}</div>`);
   if (s.ai) {
-    parts.push(`<h5>${esc(t("ai_summary"))}</h5><p style="margin:0">${esc(s.ai.summary)}</p>`);
+    parts.push(`<h5>${esc(t("ai_summary"))}</h5><p>${esc(s.ai.summary)}</p>`);
     if (s.ai.pros?.length) parts.push(`<h5>${esc(t("praised"))}</h5><ul class="pros">${s.ai.pros.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`);
     if (s.ai.cons?.length) parts.push(`<h5>${esc(t("criticized"))}</h5><ul class="cons">${s.ai.cons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`);
-    if (s.ai.who_for) parts.push(`<h5>${esc(t("who_for"))}</h5><div>${esc(s.ai.who_for)}</div>`);
-    if (s.ai.who_not) parts.push(`<h5>${esc(t("who_not"))}</h5><div>${esc(s.ai.who_not)}</div>`);
+    if (s.ai.who_for) parts.push(`<h5>${esc(t("who_for"))}</h5><p>${esc(s.ai.who_for)}</p>`);
+    if (s.ai.who_not) parts.push(`<h5>${esc(t("who_not"))}</h5><p>${esc(s.ai.who_not)}</p>`);
   } else {
-    parts.push(`<h5>${esc(t("praised"))}</h5><div>${s.pros.length ? s.pros.map(aspectName).map(esc).join(", ") : esc(t("nothing_special"))}</div>`);
-    parts.push(`<h5>${esc(t("criticized"))}</h5><div>${s.cons.length ? s.cons.map(aspectName).map(esc).join(", ") : esc(t("nothing_special"))}</div>`);
+    parts.push(`<h5>${esc(t("praised"))}</h5><p>${s.pros.length ? s.pros.map(aspectName).map(esc).join(", ") : esc(t("nothing_special"))}</p>`);
+    parts.push(`<h5>${esc(t("criticized"))}</h5><p>${s.cons.length ? s.cons.map(aspectName).map(esc).join(", ") : esc(t("nothing_special"))}</p>`);
   }
-  if (s.median_hours) parts.push(`<h5>${esc(t("typical_playtime"))}</h5><div>~${s.median_hours} ${esc(t("h"))}</div>`);
+  if (s.median_hours) parts.push(`<h5>${esc(t("typical_playtime"))}</h5><p>~${s.median_hours} ${esc(t("h"))}</p>`);
   if (!s.ai && s.quotes?.pos) parts.push(`<h5>${esc(t("quote_pos"))}</h5><blockquote>${esc(s.quotes.pos)}</blockquote>`);
   if (!s.ai && s.quotes?.neg) parts.push(`<h5>${esc(t("quote_neg"))}</h5><blockquote>${esc(s.quotes.neg)}</blockquote>`);
-  if (s.ai_error) parts.unshift(`<div class="err" style="margin:0 0 8px">${esc(t("ai_failed"))}</div>`);
-  const stat = s.pct != null ? `${s.pct}% ${t("positive")} · ${Number(s.total).toLocaleString()} ${t("reviews_word")}` : "";
-  parts.push(`<div class="src">${esc(stat)}${stat ? " · " : ""}${esc(s.ai ? "Claude" : t("source_local"))}</div>`);
+  const stat = s.pct != null ? `${s.pct}% ${t("positive")}, ${num(s.total)} ${t("reviews_word")}. ` : "";
+  parts.push(`<div class="src">${esc(stat)}${esc(s.ai ? "Claude" : t("source_local"))}</div>`);
   return parts.join("");
 }
 
-function renderHiddenInfo() {
-  const box = $("#hidden-info");
-  if (!S.hidden.size) { box.innerHTML = ""; return; }
-  box.innerHTML = `${esc(t("hidden_count", { n: S.hidden.size }))} · <button class="link" id="reset-hidden">${esc(t("reset_hidden"))}</button>`;
-  $("#reset-hidden").addEventListener("click", () => { S.hidden.clear(); store("gp.hidden", []); renderHiddenInfo(); });
+// ---------------------------------------------------------------- hidden
+async function hideGame(g, reason, el) {
+  try {
+    const r = await api("/api/hidden", { appid: g.appid, name: g.name, image: g.image || "", reason });
+    S.hidden = r.items;
+  } catch (e) { showError(e); return; }
+  el.classList.add("leaving");
+  setTimeout(() => { S.results = S.results.filter((x) => x.appid !== g.appid); renderResults(); renderHidden(); }, 240);
+}
+
+async function unhide(appid) {
+  S.hidden = (await api("/api/hidden/remove", { appid })).items;
+  renderHidden();
+}
+
+async function unhideAll() {
+  S.hidden = (await api("/api/hidden/remove", { all: true, reason: S.hiddenFilter || null })).items;
+  renderHidden();
+}
+
+function renderHidden() {
+  $("#hidden-count").textContent = S.hidden.length ? String(S.hidden.length) : "";
+  if (S.tab !== "hidden") return;
+  $$("#hidden-filter button").forEach((b) => b.classList.toggle("on", b.dataset.reason === S.hiddenFilter));
+  const items = S.hidden.filter((x) => !S.hiddenFilter || x.reason === S.hiddenFilter);
+  const fmt = new Intl.DateTimeFormat(S.lang === "en" ? "en-GB" : S.lang === "uk" ? "uk-UA" : "ru-RU", { day: "numeric", month: "long" });
+  $("#hidden-list").innerHTML = items.map((x) => `
+    <li>
+      <a href="https://store.steampowered.com/app/${x.appid}/" target="_blank" rel="noopener"><img loading="lazy" alt="" src="${esc(x.image || cdnCover(x.appid))}"></a>
+      <div>
+        <div class="h-name"><a href="https://store.steampowered.com/app/${x.appid}/" target="_blank" rel="noopener">${esc(x.name || `App ${x.appid}`)}</a></div>
+        <div class="h-meta"><span class="reason ${esc(x.reason)}">${esc(t("hf_" + x.reason))}</span>${x.ts ? esc(t("hidden_on", { date: fmt.format(new Date(x.ts * 1000)) })) : ""}</div>
+      </div>
+      <button class="btn-ink small" data-unhide="${x.appid}">${esc(t("restore"))}</button>
+    </li>`).join("");
+  $$("[data-unhide]").forEach((b) => b.addEventListener("click", () => unhide(Number(b.dataset.unhide))));
+  $("#hidden-empty").hidden = items.length > 0;
+  $("#btn-unhide-all").hidden = items.length === 0;
 }
 
 // ---------------------------------------------------------------- init
 function bind() {
   $$(".lang button").forEach((b) => b.addEventListener("click", () => { S.lang = b.dataset.lang; store("gp.lang", S.lang); applyI18n(); }));
+  $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   $("#btn-settings").addEventListener("click", openSettings);
-  $("#settings-form").addEventListener("submit", (e) => saveSettings(e).catch((err) => ($("#settings-err").textContent = errText(err))));
+  $("#settings-form").addEventListener("submit", (e) => saveSettings(e).catch((err) => { $("#settings-err").textContent = errText(err); $("#settings-err").hidden = false; }));
   $("#settings-cancel").addEventListener("click", () => $("#settings").close());
+  $("#btn-family").addEventListener("click", importFamily);
+  $("#btn-family-clear").addEventListener("click", clearFamily);
   $("#btn-refresh").addEventListener("click", loadLibrary);
   $("#btn-find").addEventListener("click", () => find(false));
   $("#btn-more").addEventListener("click", () => find(true));
+  $("#btn-unhide-all").addEventListener("click", unhideAll);
   $("#tag-search").addEventListener("input", renderTags);
+  $$("#hidden-filter button").forEach((b) => b.addEventListener("click", () => { S.hiddenFilter = b.dataset.reason; renderHidden(); }));
   $$("#mode button").forEach((b) => b.addEventListener("click", () => {
     S.mode = b.dataset.mode; store("gp.mode", S.mode);
     $$("#mode button").forEach((x) => x.classList.toggle("on", x === b));
@@ -391,7 +476,16 @@ async function init() {
   applyI18n();
   try {
     S.config = await api("/api/config");
+    S.family = await api("/api/family").catch(() => S.family);
+    S.hidden = (await api("/api/hidden")).items;
+    // перенос старого списка «Не интересно» из браузера на диск
+    const legacy = load("gp.hidden", []);
+    if (legacy.length) {
+      S.hidden = (await api("/api/hidden/import", { appids: legacy })).items;
+      store("gp.hidden", []);
+    }
   } catch (e) { showError(e); return; }
+  renderHidden();
   if (!S.config.configured) { openSettings(); return; }
   const r = await api("/api/library").catch(() => ({}));
   if (r.summary) { S.library = r.summary; renderLibrary(); renderTags(); }

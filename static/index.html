@@ -5,139 +5,188 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GamePicker</title>
   <link rel="icon" href="/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Dela+Gothic+One&family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <img class="logo" src="/icon.png" alt="">
-      <div>
-        <div class="brand-name">GamePicker</div>
-        <div class="tagline" data-i18n="tagline"></div>
-      </div>
+  <header class="masthead">
+    <div class="wordmark" aria-label="GamePicker">
+      <span class="wm-main">Game<br>Picker</span>
+      <span class="wm-ghost" aria-hidden="true">Game<br>Picker</span>
     </div>
-    <div class="top-actions">
+    <p class="masthead-line" data-i18n="tagline"></p>
+    <div class="masthead-tools">
       <div class="lang" role="group" aria-label="Language">
         <button data-lang="ru">RU</button><button data-lang="uk">UK</button><button data-lang="en">EN</button>
       </div>
-      <button class="ghost" id="btn-settings" data-i18n="settings"></button>
+      <button class="btn-ink small" id="btn-settings" data-i18n="settings"></button>
     </div>
   </header>
 
-  <!-- Настройки -->
-  <dialog id="settings">
-    <form method="dialog" id="settings-form">
-      <h2 data-i18n="setup_title"></h2>
-      <p class="muted" data-i18n="setup_text"></p>
-      <label><span data-i18n="f_key"></span>
-        <input name="steam_api_key" autocomplete="off" spellcheck="false">
-        <small data-i18n="f_key_hint"></small>
-      </label>
-      <label><span data-i18n="f_profile"></span>
-        <input name="steam_profile" placeholder="https://steamcommunity.com/id/…" spellcheck="false">
-        <small data-i18n="f_profile_hint"></small>
-      </label>
-      <label><span data-i18n="f_country"></span>
-        <select name="country">
-          <option value="ua">Україна (₴)</option><option value="us">USA ($)</option>
-          <option value="eu">Europe (€)</option><option value="pl">Polska (zł)</option>
-          <option value="kz">Қазақстан (₸)</option><option value="gb">UK (£)</option>
-          <option value="tr">Türkiye ($)</option>
-        </select>
-      </label>
-      <details>
-        <summary data-i18n="f_ai_key"></summary>
-        <label><input name="anthropic_api_key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
-          <small data-i18n="f_ai_hint"></small></label>
-        <label><span data-i18n="f_workspace"></span><input name="anthropic_workspace" placeholder="wrkspc_…" spellcheck="false">
-          <small data-i18n="f_workspace_hint"></small></label>
-        <label><span data-i18n="f_model"></span><input name="claude_model"></label>
-      </details>
-      <div class="err" id="settings-err"></div>
-      <div class="row end">
-        <button type="button" class="ghost" id="settings-cancel" data-i18n="cancel"></button>
-        <button type="submit" class="primary" data-i18n="save"></button>
-      </div>
-    </form>
-  </dialog>
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab on" data-tab="picks" data-i18n="tab_picks"></button>
+    <button role="tab" class="tab" data-tab="hidden"><span data-i18n="tab_hidden"></span> <span class="tab-count" id="hidden-count"></span></button>
+  </nav>
 
-  <main class="layout">
-    <aside class="side">
-      <section class="card" id="lib-card" hidden>
-        <div class="row between">
-          <h3 data-i18n="library"></h3>
-          <button class="link" id="btn-refresh" data-i18n="refresh"></button>
-        </div>
-        <div class="stats" id="lib-stats"></div>
-        <h4 data-i18n="your_tags"></h4>
-        <div id="lib-tags" class="bars"></div>
-        <h4 data-i18n="top_games"></h4>
-        <ol id="lib-games" class="top-games"></ol>
+  <!-- ============ Подбор ============ -->
+  <main class="sheet" id="view-picks">
+    <aside class="panel">
+      <section class="taste" id="lib-card" hidden>
+        <p class="taste-line" id="taste-line"></p>
+        <div class="taste-tags" id="lib-tags"></div>
+        <details class="taste-games">
+          <summary data-i18n="top_games"></summary>
+          <ol id="lib-games"></ol>
+        </details>
+        <button class="link" id="btn-refresh" data-i18n="refresh"></button>
       </section>
 
-      <section class="card">
-        <div class="seg" id="mode">
+      <section class="controls">
+        <div class="switch" id="mode">
           <button data-mode="library" class="on" data-i18n="mode_library"></button>
           <button data-mode="tags" data-i18n="mode_tags"></button>
         </div>
-        <p class="muted small" id="mode-hint"></p>
+        <p class="hint" id="mode-hint"></p>
 
-        <h4><span data-i18n="categories"></span> <small class="muted" data-i18n="tags_help"></small></h4>
-        <input id="tag-search" class="search" data-i18n-ph="tag_search">
+        <h2 class="ctl-title" data-i18n="categories"></h2>
+        <p class="hint" data-i18n="tags_help"></p>
+        <input id="tag-search" class="field" data-i18n-ph="tag_search">
         <div id="tag-chips" class="chips"></div>
-        <div id="match-wrap" class="seg small" hidden>
+        <div id="match-wrap" class="switch small" hidden>
           <button data-match="any" class="on" data-i18n="match_any"></button>
           <button data-match="all" data-i18n="match_all"></button>
         </div>
 
-        <h4 data-i18n="filters"></h4>
+        <h2 class="ctl-title" data-i18n="filters"></h2>
         <div class="grid2">
-          <label><span data-i18n="max_price"></span><input type="number" min="0" step="1" id="f-price" data-i18n-ph="max_price_ph"></label>
-          <label><span data-i18n="count"></span><input type="number" min="3" max="30" value="12" id="f-count"></label>
-          <label><span data-i18n="min_rating"></span>
-            <div class="range"><input type="range" min="0" max="95" step="5" value="75" id="f-rating"><b id="f-rating-v">75%</b></div></label>
-          <label><span data-i18n="min_reviews"></span><input type="number" min="0" step="10" value="100" id="f-reviews"></label>
+          <label><span data-i18n="max_price"></span><input type="number" min="0" step="1" id="f-price" class="field" data-i18n-ph="max_price_ph"></label>
+          <label><span data-i18n="count"></span><input type="number" min="3" max="30" value="12" id="f-count" class="field"></label>
         </div>
-        <label class="check"><input type="checkbox" id="f-gems"> <span><b data-i18n="gems"></b><small class="muted" data-i18n="gems_hint"></small></span></label>
-        <label class="check"><input type="checkbox" id="f-discount"> <span data-i18n="discount_only"></span></label>
-        <label class="check"><input type="checkbox" id="f-free"> <span data-i18n="free_only"></span></label>
-        <button class="primary wide" id="btn-find" data-i18n="find"></button>
-        <div class="muted small" id="hidden-info"></div>
+        <label class="range-row"><span data-i18n="min_rating"></span>
+          <span class="range"><input type="range" min="0" max="95" step="5" value="75" id="f-rating"><b id="f-rating-v">75%</b></span></label>
+        <label><span data-i18n="min_reviews"></span><input type="number" min="0" step="10" value="100" id="f-reviews" class="field"></label>
+
+        <label class="toggle gem-toggle"><input type="checkbox" id="f-gems"><span class="tg"></span>
+          <span><b data-i18n="gems"></b><small data-i18n="gems_hint"></small></span></label>
+        <label class="toggle"><input type="checkbox" id="f-discount"><span class="tg"></span><span data-i18n="discount_only"></span></label>
+        <label class="toggle"><input type="checkbox" id="f-free"><span class="tg"></span><span data-i18n="free_only"></span></label>
+
+        <button class="btn-big" id="btn-find" data-i18n="find"></button>
       </section>
     </aside>
 
     <section class="results">
-      <div id="progress" class="progress" hidden>
-        <div class="bar"><i id="progress-bar"></i></div>
-        <div id="progress-text" class="muted"></div>
-        <div class="muted small" data-i18n="first_run"></div>
+      <div id="progress" class="press" hidden>
+        <div class="press-bar"><i id="progress-bar"></i></div>
+        <p id="progress-text"></p>
+        <p class="hint" data-i18n="first_run"></p>
       </div>
-      <div id="error" class="err big" hidden></div>
-      <div id="results-meta" class="muted small"></div>
-      <div id="results" class="grid"></div>
-      <div id="placeholder" class="placeholder" data-i18n="start_hint"></div>
-      <button class="ghost wide" id="btn-more" hidden data-i18n="more"></button>
+      <div id="error" class="alert" hidden></div>
+      <p id="results-meta" class="hint"></p>
+      <div id="results" class="tickets"></div>
+      <div id="placeholder" class="empty">
+        <p class="empty-title" id="placeholder-title"></p>
+        <p class="hint" id="placeholder-text"></p>
+      </div>
+      <button class="btn-ink wide" id="btn-more" hidden data-i18n="more"></button>
     </section>
   </main>
 
-  <template id="card-tpl">
-    <article class="game">
-      <a class="cover" target="_blank" rel="noopener"><img loading="lazy" alt=""></a>
-      <div class="body">
-        <div class="row between top-line">
-          <h3 class="name"></h3>
-          <div class="price"></div>
+  <!-- ============ Скрытые ============ -->
+  <main class="sheet single" id="view-hidden" hidden>
+    <section class="hidden-view">
+      <div class="hidden-head">
+        <div>
+          <h2 class="view-title" data-i18n="hidden_title"></h2>
+          <p class="hint" data-i18n="hidden_text"></p>
         </div>
-        <div class="meta"></div>
-        <p class="desc"></p>
-        <div class="why"></div>
-        <div class="chips tags"></div>
+        <div class="switch" id="hidden-filter">
+          <button data-reason="" class="on" data-i18n="hf_all"></button>
+          <button data-reason="not_interested" data-i18n="hf_not_interested"></button>
+          <button data-reason="owned" data-i18n="hf_owned"></button>
+        </div>
+      </div>
+      <ul class="hidden-list" id="hidden-list"></ul>
+      <div class="empty" id="hidden-empty" hidden><p class="empty-title" data-i18n="hidden_empty"></p></div>
+      <button class="link" id="btn-unhide-all" data-i18n="restore_all"></button>
+    </section>
+  </main>
+
+  <!-- ============ Настройки ============ -->
+  <dialog id="settings">
+    <form method="dialog" id="settings-form">
+      <h2 class="view-title" data-i18n="setup_title"></h2>
+      <p class="hint" data-i18n="setup_text"></p>
+      <label><span data-i18n="f_key"></span>
+        <input name="steam_api_key" class="field" autocomplete="off" spellcheck="false">
+        <small data-i18n="f_key_hint"></small></label>
+      <label><span data-i18n="f_profile"></span>
+        <input name="steam_profile" class="field" placeholder="https://steamcommunity.com/id/…" spellcheck="false">
+        <small data-i18n="f_profile_hint"></small></label>
+      <label><span data-i18n="f_country"></span>
+        <select name="country" class="field">
+          <option value="ua">Україна (₴)</option><option value="us">USA ($)</option>
+          <option value="eu">Europe (€)</option><option value="pl">Polska (zł)</option>
+          <option value="kz">Қазақстан (₸)</option><option value="gb">UK (£)</option>
+          <option value="tr">Türkiye ($)</option>
+        </select></label>
+
+      <details class="fold" id="family-fold">
+        <summary><span data-i18n="family_title"></span> <span class="fold-status" id="family-status"></span></summary>
+        <p class="hint" data-i18n="family_text"></p>
+        <ol class="steps">
+          <li><span data-i18n="family_step1"></span><br>
+            <a href="https://store.steampowered.com/pointssummary/ajaxgetasyncconfig" target="_blank" rel="noopener" class="mono-link">store.steampowered.com/pointssummary/ajaxgetasyncconfig</a></li>
+          <li data-i18n="family_step2"></li>
+        </ol>
+        <textarea id="family-token" class="field" rows="3" spellcheck="false" placeholder='{"success":1,"data":{"webapi_token":"…"}}'></textarea>
+        <div class="row">
+          <button type="button" class="btn-ink small" id="btn-family" data-i18n="family_import"></button>
+          <button type="button" class="link" id="btn-family-clear" data-i18n="family_clear"></button>
+        </div>
+        <p class="hint" id="family-msg"></p>
+      </details>
+
+      <details class="fold">
+        <summary data-i18n="f_ai_key"></summary>
+        <label><input name="anthropic_api_key" class="field" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+          <small data-i18n="f_ai_hint"></small></label>
+        <label><span data-i18n="f_workspace"></span><input name="anthropic_workspace" class="field" placeholder="wrkspc_…" spellcheck="false">
+          <small data-i18n="f_workspace_hint"></small></label>
+        <label><span data-i18n="f_model"></span><input name="claude_model" class="field"></label>
+      </details>
+
+      <p class="alert small" id="settings-err" hidden></p>
+      <div class="row end">
+        <button type="button" class="link" id="settings-cancel" data-i18n="cancel"></button>
+        <button type="submit" class="btn-big" data-i18n="save"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="ticket-tpl">
+    <article class="ticket">
+      <a class="cover" target="_blank" rel="noopener"><img loading="lazy" alt=""></a>
+      <div class="stickers"></div>
+      <div class="t-body">
+        <h3 class="t-name"></h3>
+        <p class="t-sub"></p>
+        <p class="t-desc"></p>
+        <p class="note"></p>
+        <div class="t-tags"></div>
         <div class="summary" hidden></div>
-        <div class="actions">
-          <button class="ghost act-summary"></button>
-          <a class="ghost btn act-steam" target="_blank" rel="noopener"></a>
-          <a class="ghost btn act-app"></a>
-          <button class="link act-hide"></button>
+      </div>
+      <div class="perf" aria-hidden="true"></div>
+      <div class="stub">
+        <div class="stub-price"></div>
+        <div class="stub-score"></div>
+        <div class="stub-actions">
+          <button class="btn-ink small act-summary"></button>
+          <a class="chip-link act-steam" target="_blank" rel="noopener">Steam</a>
+          <a class="chip-link act-app"></a>
+          <span class="quiet"><button class="link act-owned"></button><button class="link act-hide"></button></span>
         </div>
       </div>
     </article>
