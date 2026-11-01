@@ -22,6 +22,8 @@ from recommender import build_profile, library_summary, recommend
 from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
 from summarizer import summarize
 import userdata
+import updater
+from steam_api import store_search
 
 LOG_PATH = os.path.join(DATA_DIR, "gamepicker.log")
 # В exe (и вообще без консоли) весь вывод пишем в лог-файл
@@ -57,8 +59,9 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 LAST_PING = [0.0]
+SERVER = {"srv": None}
 WEBVIEW = {"active": False, "module": None, "extra": []}
 POPUP_HOSTS = re.compile(r"^(www\.)?tiktok\.com$")
 DEFAULT_CONFIG = {
@@ -254,6 +257,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "version": APP_VERSION})
         if url.path == "/api/config":
             return self._send(200, public_config(load_config()))
+        if url.path == "/api/update":
+            info = updater.check(APP_VERSION, force=q.get("force") == "1")
+            return self._send(200, {**updater.public(info), "download": dict(updater.STATE)})
+        if url.path == "/api/search":
+            term = q.get("q", "").strip()
+            if len(term) < 2:
+                return self._send(200, {"items": []})
+            low = term.lower()
+            mine = [
+                {"appid": g["appid"], "name": g["name"], "hours": g["hours"],
+                 "image": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{g['appid']}/capsule_sm_120.jpg", "owned": True}
+                for g in sorted(STATE["games"] or [], key=lambda g: -g["hours"]) if low in g["name"].lower()
+            ][:6]
+            cfg = load_config()
+            try:
+                store = store_search(term, cfg["country"] or "ua", q.get("lang", "ru"))
+            except SteamError:
+                store = []
+            seen = {x["appid"] for x in mine}
+            return self._send(200, {"items": mine + [x for x in store if x["appid"] not in seen][:10]})
         if url.path == "/api/library":
             return self._send(200, {"summary": STATE["summary"]})
         if url.path == "/api/hidden":
@@ -318,6 +341,39 @@ class Handler(BaseHTTPRequestHandler):
                 if str(aid).isdigit():
                     userdata.hide(aid)
             return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/quit":
+            def bye():
+                time.sleep(0.3)
+                for w in list(WEBVIEW["extra"]):
+                    try:
+                        w.destroy()
+                    except Exception:  # noqa: BLE001
+                        pass
+                log("Закрываюсь по просьбе новой копии")
+                os._exit(0)
+            threading.Thread(target=bye, daemon=True).start()
+            return self._send(200, {"ok": True})
+        if url.path == "/api/update/download":
+            try:
+                return self._send(200, updater.start_download(APP_VERSION))
+            except RuntimeError as e:
+                return self._send(400, {"error": {"code": str(e)}})
+        if url.path == "/api/update/apply":
+            def before_exit():
+                for w in WEBVIEW["extra"]:
+                    try:
+                        w.destroy()
+                    except Exception:  # noqa: BLE001
+                        pass
+                if SERVER["srv"]:
+                    SERVER["srv"].server_close()
+            try:
+                updater.apply_and_restart(before_exit)
+                log(f"Обновление до {updater.STATE['version']}: перезапуск")
+                return self._send(200, {"ok": True})
+            except Exception as e:  # noqa: BLE001
+                log("Не удалось применить обновление:\n" + traceback.format_exc())
+                return self._send(500, {"error": {"code": "update_apply", "detail": str(e)}})
         if url.path == "/api/window":  # TikTok в отдельном окне приложения
             target = str(body.get("url", ""))
             host = urlparse(target).hostname or ""
@@ -353,6 +409,8 @@ class Handler(BaseHTTPRequestHandler):
 def free_port(preferred):
     for port in [preferred] + list(range(preferred + 1, preferred + 20)):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if os.name != "nt":  # как у самого HTTP-сервера: порт после закрытой копии свободен сразу
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind((HOST, port))
                 return port
@@ -398,6 +456,16 @@ def run_window(url):
         win.events.shown += shown.set
         WEBVIEW["module"] = webview
         win.events.shown += lambda: WEBVIEW.update(active=True)
+
+        def on_main_closed():
+            # главное окно закрыли — закрываем и окна TikTok, иначе программа продолжит жить без интерфейса
+            WEBVIEW["active"] = False
+            for w in list(WEBVIEW["extra"]):
+                try:
+                    w.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
+        win.events.closed += on_main_closed
         kwargs = {"gui": "edgechromium"} if os.name == "nt" else {}
         kwargs.update(private_mode=False, storage_path=os.path.join(DATA_DIR, "webview"))
         webview.start(**kwargs)
@@ -414,15 +482,29 @@ def main():
     mode_browser = "--browser" in sys.argv
     headless = "--no-browser" in sys.argv
 
-    running = already_running(PORT)
-    if running and not headless:
-        log("Уже запущен — открываю его")
-        if not (not mode_browser and run_window(running)):
-            webbrowser.open(running)
-        return
+    updater.cleanup_old()
+    if "--after-update" in sys.argv:  # ждём, пока старая версия освободит порт
+        for _ in range(40):
+            if not already_running(PORT):
+                break
+            time.sleep(0.25)
+    if already_running(PORT):
+        # Старая копия ещё жива (например, осталась висеть без окна) — просим её закрыться
+        # и запускаем свой сервер. Подключаться к чужому серверу нельзя: он может выключиться.
+        log("Найдена запущенная копия — прошу её закрыться")
+        try:
+            urllib.request.urlopen(urllib.request.Request(f"http://{HOST}:{PORT}/api/quit", data=b"{}",
+                                                          headers={"Content-Type": "application/json"}), timeout=2)
+        except Exception:  # noqa: BLE001
+            pass
+        for _ in range(24):
+            if not already_running(PORT):
+                break
+            time.sleep(0.25)
 
     port = free_port(PORT)
     srv = ThreadingHTTPServer((HOST, port), Handler)
+    SERVER["srv"] = srv
     url = f"http://{HOST}:{srv.server_address[1]}"
     log(f"Сервер: {url}")
     threading.Thread(target=srv.serve_forever, daemon=True).start()

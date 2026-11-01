@@ -225,6 +225,21 @@ def store_details(appid, cc="ua", lang="ru"):
     return entry.get("data") if entry.get("success") else None
 
 
+def store_search(term, cc="ua", lang="ru"):
+    """Поиск игр в магазине Steam по названию."""
+    d = http_json(
+        "https://store.steampowered.com/api/storesearch/",
+        {"term": term, "l": STORE_LANG.get(lang, "english"), "cc": cc},
+        ttl=86400,
+    )
+    out = []
+    for it in (d or {}).get("items", []) or []:
+        if it.get("type", "app") != "app" or not it.get("id"):
+            continue
+        out.append({"appid": int(it["id"]), "name": it.get("name", ""), "image": it.get("tiny_image", "")})
+    return out
+
+
 def app_reviews(appid, language="all", num=100, display_lang="english"):
     """Отзывы через IUserReviewsService/GetAppReviews (старый /appreviews Valve отключила 22.10.2026).
 

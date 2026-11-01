@@ -159,6 +159,10 @@ def recommend(state, f, progress):
     min_reviews = int(f.get("min_reviews") or 0)
     max_price = f.get("max_price")
     max_price = float(max_price) if max_price not in (None, "") else None
+    min_price = f.get("min_price")
+    min_price = float(min_price) if min_price not in (None, "") else None
+    if min_price is not None and max_price is not None and min_price > max_price:
+        min_price, max_price = max_price, min_price
     discount_only = bool(f.get("discount_only"))
     free_only = bool(f.get("free_only"))
     count = max(3, min(30, int(f.get("count") or 12)))
@@ -167,8 +171,48 @@ def recommend(state, f, progress):
     if mode == "tags" and not chosen:
         raise SteamError("no_tags")
 
-    target = _target_vector(profile["tags"], mode, chosen)
-    if mode == "tags":
+    # игры, на которые нужно быть похожими: в режиме «games» — выбранные, иначе — топ библиотеки
+    compare = profile["top"]
+    compare_vecs = profile["vectors"]
+    if mode == "games":
+        seeds = []
+        for sd in f.get("seeds", [])[:10]:
+            try:
+                sid = int(sd.get("appid") if isinstance(sd, dict) else sd)
+            except (TypeError, ValueError):
+                continue
+            seeds.append((sid, sd.get("name", "") if isinstance(sd, dict) else ""))
+        if not seeds:
+            raise SteamError("no_seeds")
+        hours = {g["appid"]: g["hours"] for g in games}
+        compare, compare_vecs, target = [], {}, {}
+        for i, (sid, sname) in enumerate(seeds):
+            progress(0.03 * i / len(seeds), "seeds", sname or str(sid))
+            try:
+                spy = spy_app(sid)
+            except SteamError:
+                continue
+            vec = tag_vector(spy.get("tags"))
+            if not vec:
+                continue
+            compare.append({"appid": sid, "name": sname or spy.get("name") or str(sid), "hours": hours.get(sid)})
+            compare_vecs[sid] = vec
+            for t, v in vec.items():
+                target[t] = target.get(t, 0.0) + v / len(seeds)
+            skip.add(sid)
+        if not target:
+            raise SteamError("no_seed_tags")
+        mx = max(target.values()) or 1.0
+        target = {t: v / mx for t, v in sorted(target.items(), key=lambda kv: -kv[1])[:30]}
+        for t in chosen:
+            target[t] = max(target.get(t, 0.0), 1.0)
+        auto = [t for t in target if t not in GENERIC and t not in excluded]
+        pool_tags = list(dict.fromkeys(chosen + auto[:POOL_TAGS]))
+    else:
+        target = _target_vector(profile["tags"], mode, chosen)
+    if mode == "games":
+        pass
+    elif mode == "tags":
         pool_tags = list(chosen)
     else:
         auto = [t for t in profile["tags"] if t not in GENERIC and t not in excluded]
@@ -263,19 +307,21 @@ def recommend(state, f, progress):
             continue
         if max_price is not None and (final is None or final > max_price):
             continue
+        if min_price is not None and min_price > 0 and (final is None or final < min_price):
+            continue
 
         rel = cosine(target, vec) if vec else 0.5 * pre
         score = 0.55 * rel + 0.30 * q + 0.15 * extra
 
         # «почему тебе» — самая похожая игра из библиотеки
         best, best_sim = None, 0.0
-        for g in profile["top"]:
-            sim = cosine(vec, profile["vectors"].get(g["appid"], {}))
+        for g in compare:
+            sim = cosine(vec, compare_vecs.get(g["appid"], {}))
             if sim > best_sim:
                 best, best_sim = g, sim
         shared = []
         if best:
-            ov = profile["vectors"][best["appid"]]
+            ov = compare_vecs[best["appid"]]
             common = sorted(set(vec) & set(ov), key=lambda t: -(vec[t] * ov[t] * (0.3 if t in GENERIC else 1)))
             shared = common[:4]
 
