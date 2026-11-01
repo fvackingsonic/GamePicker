@@ -592,3 +592,12 @@ Object.assign(I18N.en, {
   update_downloading_pct: "Downloading {v}… {p}%", mode_library: "From my games", mode_tags: "By category",
   start_hint: "Press “Find games” to see games picked for you.", empty: "Nothing found. Loosen the filters or pick other games and tags.",
 });
+Object.assign(I18N.ru, { seed_blend: "Смешать все", seed_each: "Похожие на каждую", seed_blend_hint: "Игры, в которых сошлось всё, что ты выбрал", seed_each_hint: "Для каждой выбранной игры — свои похожие, по очереди",
+  seeds_label_blend: "Смешиваем:", why_blend: "Сочетает то, что есть в {games}", and: "и",
+  meta_blend: "{n} игр, в которых сошлись {games}", meta_each: "{n} игр: похожие на {games} по отдельности" });
+Object.assign(I18N.uk, { seed_blend: "Змішати все", seed_each: "Схожі на кожну", seed_blend_hint: "Ігри, у яких зійшлося все, що ти обрав", seed_each_hint: "Для кожної обраної гри — свої схожі, по черзі",
+  seeds_label_blend: "Змішуємо:", why_blend: "Поєднує те, що є в {games}", and: "і",
+  meta_blend: "{n} ігор, у яких зійшлися {games}", meta_each: "{n} ігор: схожі на {games} окремо" });
+Object.assign(I18N.en, { seed_blend: "Blend all", seed_each: "Similar to each", seed_blend_hint: "Games where everything you picked comes together", seed_each_hint: "Similar games for each pick, taking turns",
+  seeds_label_blend: "Blending:", why_blend: "Combines what's in {games}", and: "and",
+  meta_blend: "{n} games where {games} come together", meta_each: "{n} games similar to {games} separately" });

@@ -5,7 +5,7 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 function load(key, def) { try { const v = localStorage.getItem(key); return v === null ? def : JSON.parse(v); } catch { return def; } }
 function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ } }
 
-const DEFAULT_F = { min_price: null, max_price: null, min_rating: 75, min_reviews: 100, discount_only: false, free_only: false, gems: false, count: 12, match: "any" };
+const DEFAULT_F = { min_price: null, max_price: null, min_rating: 75, min_reviews: 100, discount_only: false, free_only: false, gems: false, count: 12, match: "any", seed_mode: "blend" };
 
 const S = {
   lang: load("gp.lang", "ru"),
@@ -48,6 +48,7 @@ const headerImg = (id) => `${CDN}/${id}/header.jpg`;
 const portraitImg = (id) => `${CDN}/${id}/library_600x900.jpg`;
 const rateClass = (r) => (r >= 85 ? "g" : r >= 70 ? "m" : "b");
 const saveF = () => store("gp.filters", S.f);
+const listJoin = (arr) => (arr.length <= 1 ? arr.join("") : arr.slice(0, -1).join(", ") + ` ${t("and")} ` + arr[arr.length - 1]);
 
 function applyI18n() {
   document.documentElement.lang = S.lang;
@@ -330,9 +331,15 @@ function renderSeeds() {
   row.hidden = S.mode !== "games";
   if (row.hidden) return;
   if (!S.seeds.length) { row.innerHTML = `<span class="hint-inline">${esc(t("seed_empty"))}</span>`; return; }
-  row.innerHTML = `<span class="lbl">${esc(t("seeds_label"))}</span>` + S.seeds.map((x) =>
+  const multi = S.seeds.length > 1;
+  const sw = multi ? `<div class="seg small" id="seed-mode">
+      <button data-sm="blend" class="${S.f.seed_mode !== "each" ? "on" : ""}" title="${esc(t("seed_blend_hint"))}">${esc(t("seed_blend"))}</button>
+      <button data-sm="each" class="${S.f.seed_mode === "each" ? "on" : ""}" title="${esc(t("seed_each_hint"))}">${esc(t("seed_each"))}</button>
+    </div>` : "";
+  row.innerHTML = sw + `<span class="lbl">${esc(t(multi && S.f.seed_mode !== "each" ? "seeds_label_blend" : "seeds_label"))}</span>` + S.seeds.map((x) =>
     `<span class="seed"><img alt="" src="${esc(x.image || headerImg(x.appid))}">${esc(x.name)}<button type="button" data-rm="${x.appid}" aria-label="${esc(t("remove"))}">✕</button></span>`).join("");
   $$("[data-rm]", row).forEach((b) => b.addEventListener("click", () => removeSeed(Number(b.dataset.rm))));
+  $$("[data-sm]", row).forEach((b) => b.addEventListener("click", () => { S.f.seed_mode = b.dataset.sm; saveF(); renderSeeds(); }));
 }
 function addSeed(g) {
   if (!S.seeds.some((x) => x.appid === g.appid)) S.seeds.push({ appid: g.appid, name: g.name, image: g.image || "" });
@@ -474,7 +481,9 @@ function renderGrid() {
   grid.innerHTML = S.results.map((g, i) => {
     const pr = g.price;
     const sale = pr.discount > 0 ? `<span class="sale">−${pr.discount}%</span><s>${esc(pr.initial)}</s>` : "";
-    const why = g.why && g.why.game ? t("card_why", { game: g.why.game }) + (g.why.hours ? `, ${num(g.why.hours)} ${t("h")}` : "") : (g.genres || []).join(", ");
+    const wg = (g.why && g.why.games) || [];
+    const why = wg.length > 1 ? wg.join(" + ")
+      : g.why && g.why.game ? t("card_why", { game: g.why.game }) + (g.why.hours ? `, ${num(g.why.hours)} ${t("h")}` : "") : (g.genres || []).join(", ");
     return `<button class="card ${S.sel && S.sel.appid === g.appid ? "on" : ""}" data-i="${i}">
       ${coverHtml(g)}
       <div class="n">${esc(g.name)}</div>
@@ -489,7 +498,8 @@ function renderGrid() {
 function metaLine() {
   const n = S.results.length;
   const lf = S.lastFilters || {};
-  if (lf.mode === "games" && lf.seeds?.length) return t("meta_games", { n, games: lf.seeds.map((x) => x.name).slice(0, 3).join(", ") });
+  if (lf.mode === "games" && lf.seeds?.length > 1) return t(lf.seed_mode === "each" ? "meta_each" : "meta_blend", { n, games: listJoin(lf.seeds.map((x) => x.name).slice(0, 4)) });
+  if (lf.mode === "games" && lf.seeds?.length) return t("meta_games", { n, games: lf.seeds[0].name });
   if (lf.mode === "tags") return t("meta_tags", { n, tags: (lf.tags || []).map(tagName).join(", ") });
   return t("meta_library", { n });
 }
@@ -534,7 +544,9 @@ function renderSide() {
 
   const facts = [];
   if (g.why && g.why.game) {
-    const main = g.why.hours ? t("note_why", { game: g.why.game, h: num(g.why.hours) }) : t("note_why_seed", { game: g.why.game });
+    const wg = g.why.games || [];
+    const main = wg.length > 1 ? t("why_blend", { games: listJoin(wg) })
+      : g.why.hours ? t("note_why", { game: g.why.game, h: num(g.why.hours) }) : t("note_why_seed", { game: g.why.game });
     facts.push(cell("blue", "★", t("why_you"), main));
   }
   if (g.rating != null) facts.push(cell(g.rating >= 85 ? "green" : g.rating >= 70 ? "amber" : "red", "✓", t("rating_line", { r: g.rating }), t("reviews_from", { n: num(g.reviews) })));

@@ -206,8 +206,12 @@ def recommend(state, f, progress):
         target = {t: v / mx for t, v in sorted(target.items(), key=lambda kv: -kv[1])[:30]}
         for t in chosen:
             target[t] = max(target.get(t, 0.0), 1.0)
+        # кандидаты: главные теги КАЖДОЙ выбранной игры, чтобы не потерять ни одну
+        per_seed = []
+        for c in compare:
+            per_seed += [t for t in compare_vecs[c["appid"]] if t not in GENERIC and t not in excluded][:3]
         auto = [t for t in target if t not in GENERIC and t not in excluded]
-        pool_tags = list(dict.fromkeys(chosen + auto[:POOL_TAGS]))
+        pool_tags = list(dict.fromkeys(chosen + per_seed + auto))[:max(POOL_TAGS, 3 * len(compare) + 1, 9)][:12]
     else:
         target = _target_vector(profile["tags"], mode, chosen)
     if mode == "games":
@@ -263,7 +267,9 @@ def recommend(state, f, progress):
     if not scored:
         return {"items": [], "pool_tags": pool_tags, "checked": 0}
     scored.sort(reverse=True)
-    shortlist = scored[: max(30, count * 3)]
+    multi = mode == "games" and len(compare) > 1
+    seed_mode = f.get("seed_mode") if f.get("seed_mode") in ("blend", "each") else "blend"
+    shortlist = scored[: min(60, max(30, count * 3, 12 * len(compare) if multi else 0))]
 
     # 3. Подробности: теги (SteamSpy) + цена/описание в твоём регионе (магазин Steam)
     done = [0]
@@ -311,19 +317,31 @@ def recommend(state, f, progress):
             continue
 
         rel = cosine(target, vec) if vec else 0.5 * pre
+        sims = [cosine(vec, compare_vecs.get(g["appid"], {})) for g in compare]
+        if multi and vec:
+            if seed_mode == "blend":
+                # должна быть похожа на ВСЕ выбранные: слабейшее сходство весит больше всего
+                rel = 0.6 * min(sims) + 0.4 * (sum(sims) / len(sims))
+            else:
+                rel = max(sims)
         score = 0.55 * rel + 0.30 * q + 0.15 * extra
 
-        # «почему тебе» — самая похожая игра из библиотеки
+        # «почему тебе» — на какую игру (или игры) похоже
         best, best_sim = None, 0.0
-        for g in compare:
-            sim = cosine(vec, compare_vecs.get(g["appid"], {}))
+        for g, sim in zip(compare, sims):
             if sim > best_sim:
                 best, best_sim = g, sim
+        why_games = [best] if best else []
+        if multi and seed_mode == "blend" and best:
+            why_games = [g for g, sim in sorted(zip(compare, sims), key=lambda x: -x[1])
+                         if sim >= max(0.25, 0.7 * best_sim)]
         shared = []
-        if best:
+        if why_games:
+            common = set(vec)
+            for g in why_games:
+                common &= set(compare_vecs[g["appid"]])
             ov = compare_vecs[best["appid"]]
-            common = sorted(set(vec) & set(ov), key=lambda t: -(vec[t] * ov[t] * (0.3 if t in GENERIC else 1)))
-            shared = common[:4]
+            shared = sorted(common, key=lambda t: -(vec[t] * ov.get(t, 0) * (0.3 if t in GENERIC else 1)))[:4]
 
         items.append({
             "appid": aid,
@@ -348,26 +366,41 @@ def recommend(state, f, progress):
             "matched": [t for t in chosen if t in all_tags],
             "why": {
                 "game": best["name"] if best else None,
-                "hours": best["hours"] if best else None,
+                "games": [g["name"] for g in why_games],
+                "hours": best["hours"] if best and len(why_games) <= 1 else None,
                 "shared": shared,
                 "similarity": round(best_sim, 2),
             },
             "gem": n < 5000,
             "score": round(score, 4),
             "_vec": vec,
+            "_seed": best["appid"] if best else None,
         })
 
     # 4. Разнообразие (MMR): не выдаём 12 одинаковых игр
     picked = []
     pool = sorted(items, key=lambda x: -x["score"])
-    while pool and len(picked) < count:
-        def mmr(x):
-            sim = max((cosine(x["_vec"], p["_vec"]) for p in picked), default=0.0)
-            return x["score"] - 0.3 * sim
-        nxt = max(pool, key=mmr)
-        pool.remove(nxt)
-        picked.append(nxt)
+
+    def mmr(x):
+        sim = max((cosine(x["_vec"], p["_vec"]) for p in picked), default=0.0)
+        return x["score"] - 0.3 * sim
+
+    if multi and seed_mode == "each":
+        # по очереди: лучшая для первой игры, лучшая для второй… чтобы каждой досталось поровну
+        buckets = [[x for x in pool if x["_seed"] == c["appid"]] for c in compare]
+        while len(picked) < count and any(buckets):
+            for b in buckets:
+                if b and len(picked) < count:
+                    nxt = max(b, key=mmr)
+                    b.remove(nxt)
+                    picked.append(nxt)
+    else:
+        while pool and len(picked) < count:
+            nxt = max(pool, key=mmr)
+            pool.remove(nxt)
+            picked.append(nxt)
     for p in picked:
         p.pop("_vec", None)
+        p.pop("_seed", None)
     progress(1.0, "rank", "")
     return {"items": picked, "pool_tags": pool_tags, "checked": len(cands)}

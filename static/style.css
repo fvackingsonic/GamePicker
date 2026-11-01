@@ -116,6 +116,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .dropdown .none { color: var(--text-3); cursor: default; }
 
 .seeds-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.seg.small { padding: 3px; margin-right: 6px; }
+.seg.small button { padding: 6px 12px; font-size: 12.5px; }
 .seeds-row .lbl { color: var(--text-3); font-size: 13px; margin-right: 2px; }
 .seed { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 4px; border-radius: 999px; background: var(--blue-soft); color: var(--text); font-weight: 600; font-size: 13.5px; }
 .seed img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--surface-3); }
