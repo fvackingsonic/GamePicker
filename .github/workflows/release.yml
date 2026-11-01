@@ -32,6 +32,8 @@ jobs:
           pip install pyinstaller pywebview
 
       - name: Live Steam API check (отзывы и магазин отвечают JSON)
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           python -c "import steam_api as s, summarizer as m; r=s.app_reviews(9200,'all',20,'russian'); print('reviews', len(r['reviews']), r['query_summary'].get('review_score_desc'), r['query_summary'].get('total_reviews')); assert r['reviews']; d=s.store_details(9200,'ua','ru'); print('store', d and d.get('name'), d and d.get('price_overview')); x=m.summarize(895400,'Deadside','ru'); print('summary', x['pct'], x['total'], x['pros'], x['cons'])"
 
