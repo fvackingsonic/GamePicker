@@ -38,6 +38,14 @@
   </nav>
 
   <!-- ============ Подбор ============ -->
+  <div class="update-bar" id="update-bar" hidden>
+    <span id="update-text"></span>
+    <span class="update-prog" id="update-prog" hidden><i></i></span>
+    <button class="btn-ink small" id="btn-update"></button>
+    <a class="link" id="update-notes" target="_blank" rel="noopener"></a>
+    <button class="link" id="update-later"></button>
+  </div>
+
   <main class="sheet" id="view-picks">
     <aside class="panel">
       <section class="taste" id="lib-card" hidden>
@@ -53,9 +61,18 @@
       <section class="controls">
         <div class="switch" id="mode">
           <button data-mode="library" class="on" data-i18n="mode_library"></button>
+          <button data-mode="games" data-i18n="mode_games"></button>
           <button data-mode="tags" data-i18n="mode_tags"></button>
         </div>
         <p class="hint" id="mode-hint"></p>
+
+        <div class="seeds" id="seeds-box" hidden>
+          <div class="seed-search">
+            <input id="seed-input" class="field" autocomplete="off" data-i18n-ph="seed_ph">
+            <ul class="seed-results" id="seed-results" hidden></ul>
+          </div>
+          <div class="seed-list" id="seed-list"></div>
+        </div>
 
         <h2 class="ctl-title" data-i18n="categories"></h2>
         <p class="hint" data-i18n="tags_help"></p>
@@ -68,9 +85,10 @@
 
         <h2 class="ctl-title" data-i18n="filters"></h2>
         <div class="grid2">
-          <label><span data-i18n="max_price"></span><input type="number" min="0" step="1" id="f-price" class="field" data-i18n-ph="max_price_ph"></label>
-          <label><span data-i18n="count"></span><input type="number" min="3" max="30" value="12" id="f-count" class="field"></label>
+          <label><span data-i18n="price_from"></span><input type="number" min="0" step="1" id="f-price-min" class="field" placeholder="0"></label>
+          <label><span data-i18n="price_to"></span><input type="number" min="0" step="1" id="f-price" class="field" data-i18n-ph="max_price_ph"></label>
         </div>
+        <label><span data-i18n="count"></span><input type="number" min="3" max="30" value="12" id="f-count" class="field"></label>
         <label class="range-row"><span data-i18n="min_rating"></span>
           <span class="range"><input type="range" min="0" max="95" step="5" value="75" id="f-rating"><b id="f-rating-v">75%</b></span></label>
         <label><span data-i18n="min_reviews"></span><input type="number" min="0" step="10" value="100" id="f-reviews" class="field"></label>
@@ -165,6 +183,10 @@
         <label><span data-i18n="f_model"></span><input name="claude_model" class="field"></label>
       </details>
 
+      <div class="row about-row">
+        <span class="hint" id="about-version"></span>
+        <button type="button" class="link" id="btn-check-update" data-i18n="check_update"></button>
+      </div>
       <p class="alert small" id="settings-err" hidden></p>
       <div class="row end">
         <button type="button" class="link" id="settings-cancel" data-i18n="cancel"></button>

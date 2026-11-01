@@ -512,3 +512,39 @@ Object.assign(I18N.en, { trailer: "Trailer", screenshot: "Screenshot", screensho
 Object.assign(I18N.ru, { tiktok_hint: "Видео об игре в TikTok: откроется окно с поиском" });
 Object.assign(I18N.uk, { tiktok_hint: "Відео про гру в TikTok: відкриється вікно з пошуком" });
 Object.assign(I18N.en, { tiktok_hint: "Videos about this game on TikTok: opens a search window" });
+Object.assign(I18N.ru, {
+  mode_games: "По выбранным играм", mode_games_hint: "Добавь игры, которые тебе нравятся (свои или любые из Steam), и найдём похожие.",
+  mode_library_hint: "Анализируем, во что ты играешь больше всего. Выбранные теги дадут им дополнительный вес.",
+  mode_tags_hint: "Ищем по выбранным категориям, а твои вкусы помогают отсортировать.",
+  seed_ph: "Начни вводить название игры…", seed_empty: "Пока ни одной игры. Найди её в поиске выше или нажми «Похожие» на любой карточке.",
+  seed_owned: "у тебя {h} ч", seed_none: "Ничего не нашлось", remove: "Убрать", more_like: "Похожие",
+  note_why_seed: "Похоже на {game}", price_from: "Цена от", price_to: "до",
+  err_no_seeds: "Добавь хотя бы одну игру, на которую искать похожие.", err_no_seed_tags: "Для выбранных игр не нашлось тегов в SteamSpy. Попробуй другие игры.", stage_seeds: "Изучаю выбранные игры: {d}",
+  version_now: "Версия {v}", check_update: "Проверить обновления", update_none: "У тебя последняя версия ({v})", update_private: "Обновления недоступны: репозиторий GitHub закрытый",
+  update_available: "Вышла новая версия {v}", update_install: "Обновить", update_downloading: "Скачиваю версию {v}…", update_ready: "Версия {v} скачана", update_restart: "Перезапустить и обновить",
+  update_restarting: "Перезапускаюсь…", update_failed: "Не удалось скачать обновление", update_open_page: "Открыть страницу загрузки", update_whats_new: "Что нового", update_later: "Позже",
+});
+Object.assign(I18N.uk, {
+  mode_games: "За обраними іграми", mode_games_hint: "Додай ігри, які тобі подобаються (свої чи будь-які зі Steam), і знайдемо схожі.",
+  mode_library_hint: "Аналізуємо, у що ти граєш найбільше. Обрані теги отримають додаткову вагу.",
+  mode_tags_hint: "Шукаємо за обраними категоріями, а твої смаки допомагають сортувати.",
+  seed_ph: "Почни вводити назву гри…", seed_empty: "Поки жодної гри. Знайди її в пошуку вище або натисни «Схожі» на будь-якій картці.",
+  seed_owned: "у тебе {h} год", seed_none: "Нічого не знайшлося", remove: "Прибрати", more_like: "Схожі",
+  note_why_seed: "Схоже на {game}", price_from: "Ціна від", price_to: "до",
+  err_no_seeds: "Додай хоча б одну гру, на яку шукати схожі.", err_no_seed_tags: "Для обраних ігор не знайшлося тегів у SteamSpy. Спробуй інші ігри.", stage_seeds: "Вивчаю обрані ігри: {d}",
+  version_now: "Версія {v}", check_update: "Перевірити оновлення", update_none: "У тебе остання версія ({v})", update_private: "Оновлення недоступні: репозиторій GitHub закритий",
+  update_available: "Вийшла нова версія {v}", update_install: "Оновити", update_downloading: "Завантажую версію {v}…", update_ready: "Версію {v} завантажено", update_restart: "Перезапустити й оновити",
+  update_restarting: "Перезапускаюсь…", update_failed: "Не вдалося завантажити оновлення", update_open_page: "Відкрити сторінку завантаження", update_whats_new: "Що нового", update_later: "Пізніше",
+});
+Object.assign(I18N.en, {
+  mode_games: "Like chosen games", mode_games_hint: "Add games you like (yours or any on Steam) and we'll find similar ones.",
+  mode_library_hint: "We analyse what you play most. Selected tags get extra weight.",
+  mode_tags_hint: "We search the selected categories and use your taste to rank.",
+  seed_ph: "Start typing a game name…", seed_empty: "No games yet. Search above or press “Similar” on any card.",
+  seed_owned: "you: {h} h", seed_none: "Nothing found", remove: "Remove", more_like: "Similar",
+  note_why_seed: "Like {game}", price_from: "Price from", price_to: "to",
+  err_no_seeds: "Add at least one game to find similar ones.", err_no_seed_tags: "SteamSpy has no tags for the chosen games. Try others.", stage_seeds: "Studying chosen games: {d}",
+  version_now: "Version {v}", check_update: "Check for updates", update_none: "You have the latest version ({v})", update_private: "Updates unavailable: the GitHub repository is private",
+  update_available: "Version {v} is out", update_install: "Update", update_downloading: "Downloading version {v}…", update_ready: "Version {v} downloaded", update_restart: "Restart and update",
+  update_restarting: "Restarting…", update_failed: "Couldn't download the update", update_open_page: "Open download page", update_whats_new: "What's new", update_later: "Later",
+});

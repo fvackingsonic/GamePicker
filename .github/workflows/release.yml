@@ -99,3 +99,30 @@ jobs:
           make_latest: true
           files: dist/GamePicker.exe
           body_path: build/release_notes.md
+
+      - name: Self-update test (старая версия сама обновляется до новой)
+        shell: pwsh
+        env:
+          GAMEPICKER_FAKE_VERSION: "1.0.0"
+          GAMEPICKER_GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "gp"; New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item dist\GamePicker.exe "$dir\GamePicker.exe"
+          Start-Process "$dir\GamePicker.exe" -ArgumentList "--no-browser" | Out-Null
+          $base = "http://127.0.0.1:8765"
+          for ($i = 0; $i -lt 30; $i++) { Start-Sleep 1; try { $v = (Invoke-RestMethod "$base/api/ping").version; if ($v) { break } } catch {} }
+          "running version: $v"
+          $u = Invoke-RestMethod "$base/api/update?force=1"; "update available=$($u.available) latest=$($u.version) can_install=$($u.can_install) error=$($u.error)"
+          if (-not $u.available) { throw "update not detected" }
+          Invoke-RestMethod -Method Post -ContentType "application/json" -Body "{}" "$base/api/update/download" | Out-Null
+          for ($i = 0; $i -lt 120; $i++) { Start-Sleep 1; $st = (Invoke-RestMethod "$base/api/update").download; if ($st.status -ne "downloading") { break } }
+          "download: $($st.status) $($st.error)"
+          if ($st.status -ne "ready") { throw "download failed" }
+          Invoke-RestMethod -Method Post -ContentType "application/json" -Body "{}" "$base/api/update/apply" | Out-Null
+          $new = $null
+          for ($i = 0; $i -lt 40; $i++) { Start-Sleep 1; try { $new = (Invoke-RestMethod "$base/api/ping").version; if ($new -and $new -ne "1.0.0") { break } } catch {} }
+          "after update: $new"
+          Get-ChildItem $dir | Format-Table Name, Length
+          Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -Tail 15 -ErrorAction SilentlyContinue
+          Stop-Process -Name GamePicker -Force -ErrorAction SilentlyContinue
+          if ($new -ne "${{ steps.ver.outputs.version }}") { throw "self-update did not restart into the new version" }

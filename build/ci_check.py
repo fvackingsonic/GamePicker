@@ -34,6 +34,10 @@ assert media and media["screenshots"], "no screenshots"
 mv = media["movies"][0]
 print("movie", mv)
 
+found = s.store_search("Hades", "ua", "ru")
+print("store_search", len(found), found[:2])
+assert found, "store search empty"
+
 srv = ThreadingHTTPServer(("127.0.0.1", 8799), app.Handler)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 base = "http://127.0.0.1:8799"

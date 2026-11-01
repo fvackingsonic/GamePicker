@@ -200,6 +200,7 @@ label small { margin-top: 4px; }
 .panel { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 26px; max-height: calc(100vh - 40px); overflow: auto; padding-right: 4px; }
 .ctl-title { font-family: var(--display); font-weight: 400; font-size: 18px; margin: 22px 0 2px; }
 .controls > .switch { margin-bottom: 8px; }
+#mode button { white-space: normal; font-size: 13px; line-height: 1.2; padding: 8px 6px; }
 
 .taste { border: var(--line); border-radius: 16px; padding: 16px 16px 14px; background: var(--paper); position: relative; }
 .taste-line { font-size: 15px; line-height: 1.5; }
@@ -291,6 +292,30 @@ button.chip-link { font: inherit; font-size: 13.5px; font-weight: 600; color: in
 .summary blockquote { margin: 4px 0 0; padding: 4px 0 4px 12px; border-left: 2px solid var(--pink); color: var(--ink-2); }
 .summary .src { margin-top: 12px; font-size: 12px; color: var(--ink-3); }
 .summary .err { color: var(--bad); font-weight: 600; margin-bottom: 8px; }
+
+/* ---------- выбранные игры ---------- */
+.seeds { margin: 4px 0 6px; }
+.seed-search { position: relative; }
+.seed-results { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; background: var(--card); border: var(--line); border-radius: 12px; box-shadow: var(--shadow); max-height: 320px; overflow: auto; }
+.seed-results li { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.seed-results li:hover, .seed-results li.on { background: var(--soft); }
+.seed-results img { width: 64px; height: 24px; object-fit: cover; border-radius: 4px; background: var(--soft); flex: none; }
+.seed-results small { color: var(--ink-3); margin-left: auto; white-space: nowrap; }
+.seed-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.seed { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: var(--line); border-radius: 10px; background: var(--card); font-size: 14px; font-weight: 600; }
+.seed img { width: 72px; height: 27px; object-fit: cover; border-radius: 4px; flex: none; background: var(--soft); }
+.seed span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seed button { color: var(--ink-3); font-size: 16px; padding: 0 4px; }
+.seed button:hover { color: var(--bad); }
+.seed-empty { font-size: 13px; color: var(--ink-3); }
+.act-seed { font-size: 12.5px; }
+
+/* ---------- обновление ---------- */
+.update-bar { max-width: 1416px; margin: 0 auto 14px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; border: var(--line); border-radius: 14px; background: var(--tint-blue); font-weight: 600; }
+.update-bar #update-text { flex: 1; min-width: 200px; }
+.update-prog { width: 160px; height: 8px; border-radius: 999px; background: var(--paper-2); overflow: hidden; border: var(--line); }
+.update-prog i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .3s; }
+.about-row { justify-content: space-between; margin-top: 16px; }
 
 /* ---------- медиа на билете ---------- */
 .media-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 6px 6px 0; }

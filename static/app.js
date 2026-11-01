@@ -21,6 +21,8 @@ const S = {
   lastFilters: null,
   busy: false,
   tab: "picks",
+  seeds: load("gp.seeds", []),   // [{appid,name,image}]
+  update: null,
   theme: load("gp.theme", "auto"),
 };
 
@@ -49,7 +51,9 @@ function applyI18n() {
   $$("[data-i18n-ph]").forEach((el) => (el.placeholder = t(el.dataset.i18nPh)));
   $$("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); el.setAttribute("aria-label", el.title); });
   $$(".lang button").forEach((b) => b.classList.toggle("on", b.dataset.lang === S.lang));
-  $("#mode-hint").textContent = t(S.mode === "tags" ? "mode_tags_hint" : "mode_library_hint");
+  $("#mode-hint").textContent = t(`mode_${S.mode}_hint`);
+  renderSeeds();
+  renderUpdate();
   renderLibrary();
   renderTags();
   renderResults();
@@ -252,12 +256,15 @@ function collectFilters() {
   const inc = Object.entries(S.tagState).filter(([, v]) => v === "inc").map(([k]) => k);
   const exc = Object.entries(S.tagState).filter(([, v]) => v === "exc").map(([k]) => k);
   const price = $("#f-price").value;
+  const priceMin = $("#f-price-min").value;
   return {
     mode: S.mode,
     tags: inc,
     exclude_tags: exc,
     match: S.match,
     max_price: price === "" ? null : Number(price),
+    min_price: priceMin === "" ? null : Number(priceMin),
+    seeds: S.seeds.map((x) => ({ appid: x.appid, name: x.name })),
     discount_only: $("#f-discount").checked,
     free_only: $("#f-free").checked,
     min_rating: Number($("#f-rating").value),
@@ -273,6 +280,7 @@ async function find(more = false) {
   if (!S.config?.configured) return openSettings();
   const filters = more && S.lastFilters ? { ...S.lastFilters } : collectFilters();
   if (filters.mode === "tags" && !filters.tags.length) return showError({ code: "no_tags" });
+  if (filters.mode === "games" && !filters.seeds.length) return showError({ code: "no_seeds" });
   if (!more) S.shown.clear();
   filters.skip = [...S.shown];
   filters.lang = S.lang;
@@ -341,7 +349,8 @@ function renderResults() {
 
     if (g.why && g.why.game) {
       const shared = g.why.shared.map(tagName).join(", ");
-      $(".note", el).innerHTML = esc(t("note_why", { game: g.why.game, h: num(g.why.hours) })) +
+      const whyText = g.why.hours ? t("note_why", { game: g.why.game, h: num(g.why.hours) }) : t("note_why_seed", { game: g.why.game });
+      $(".note", el).innerHTML = esc(whyText) +
         (shared ? `<small>${esc(t("note_common", { tags: shared }))}</small>` : "");
     } else {
       $(".note", el).hidden = true;
@@ -363,6 +372,10 @@ function renderResults() {
     const tk = $(".act-tiktok", el);
     tk.title = t("tiktok_hint");
     tk.addEventListener("click", () => openTikTok(g));
+    const seedBtn = document.createElement("button");
+    seedBtn.type = "button"; seedBtn.className = "link act-seed"; seedBtn.textContent = t("more_like");
+    seedBtn.addEventListener("click", () => { addSeed({ appid: g.appid, name: g.name, image: g.image }); setMode("games"); window.scrollTo({ top: 0, behavior: "smooth" }); });
+    $(".quiet", el).prepend(seedBtn);
     $(".act-owned", el).textContent = t("owned_btn");
     $(".act-owned", el).addEventListener("click", () => hideGame(g, "owned", el));
     $(".act-hide", el).textContent = t("not_interested");
@@ -413,6 +426,132 @@ function summaryHtml(s) {
   const stat = s.pct != null ? `${s.pct}% ${t("positive")}, ${num(s.total)} ${t("reviews_word")}. ` : "";
   parts.push(`<div class="src">${esc(stat)}${esc(s.ai ? "Claude" : t("source_local"))}</div>`);
   return parts.join("");
+}
+
+// ---------------------------------------------------------------- режим и выбранные игры
+function setMode(mode) {
+  S.mode = mode; store("gp.mode", S.mode);
+  $$("#mode button").forEach((x) => x.classList.toggle("on", x.dataset.mode === mode));
+  $("#mode-hint").textContent = t(`mode_${mode}_hint`);
+  $("#seeds-box").hidden = mode !== "games";
+  renderSeeds();
+  renderTags();
+}
+
+function addSeed(g) {
+  if (!S.seeds.some((x) => x.appid === g.appid)) S.seeds.push({ appid: g.appid, name: g.name, image: g.image || "" });
+  S.seeds = S.seeds.slice(-10);
+  store("gp.seeds", S.seeds);
+  renderSeeds();
+}
+
+function removeSeed(appid) {
+  S.seeds = S.seeds.filter((x) => x.appid !== appid);
+  store("gp.seeds", S.seeds);
+  renderSeeds();
+}
+
+function renderSeeds() {
+  $("#seeds-box").hidden = S.mode !== "games";
+  const box = $("#seed-list");
+  if (!S.seeds.length) { box.innerHTML = `<p class="seed-empty">${esc(t("seed_empty"))}</p>`; return; }
+  box.innerHTML = S.seeds.map((x) => `<div class="seed"><img alt="" src="${esc(x.image || cdnCover(x.appid))}"><span>${esc(x.name)}</span><button type="button" data-rm="${x.appid}" aria-label="${esc(t("remove"))}">✕</button></div>`).join("");
+  $$("[data-rm]", box).forEach((b) => b.addEventListener("click", () => removeSeed(Number(b.dataset.rm))));
+}
+
+let seedFound = [];
+async function searchSeeds() {
+  const q = $("#seed-input").value.trim();
+  const list = $("#seed-results");
+  if (q.length < 2) { list.hidden = true; return; }
+  try {
+    seedFound = (await api(`/api/search?q=${encodeURIComponent(q)}&lang=${S.lang}`)).items;
+  } catch { seedFound = []; }
+  if ($("#seed-input").value.trim() !== q) return;
+  list.innerHTML = seedFound.length
+    ? seedFound.map((x, i) => `<li data-i="${i}" class="${i === 0 ? "on" : ""}"><img alt="" src="${esc(x.image || cdnCover(x.appid))}">${esc(x.name)}${x.owned ? `<small>${esc(t("seed_owned", { h: num(x.hours) }))}</small>` : ""}</li>`).join("")
+    : `<li class="seed-none">${esc(t("seed_none"))}</li>`;
+  list.hidden = false;
+  $$("li[data-i]", list).forEach((li) => li.addEventListener("mousedown", (e) => { e.preventDefault(); pickSeed(Number(li.dataset.i)); }));
+}
+
+function pickSeed(i) {
+  const x = seedFound[i];
+  if (!x) return;
+  addSeed(x);
+  $("#seed-input").value = "";
+  $("#seed-results").hidden = true;
+}
+
+function seedKeys(e) {
+  const items = $$("#seed-results li[data-i]");
+  if (!items.length || $("#seed-results").hidden) return;
+  let cur = items.findIndex((li) => li.classList.contains("on"));
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    cur = (cur + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items.forEach((li, k) => li.classList.toggle("on", k === cur));
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    pickSeed(Number(items[Math.max(0, cur)].dataset.i));
+  } else if (e.key === "Escape") {
+    $("#seed-results").hidden = true;
+  }
+}
+
+// ---------------------------------------------------------------- обновления
+async function checkUpdate(manual = false) {
+  try {
+    S.update = await api(`/api/update${manual ? "?force=1" : ""}`);
+  } catch { return; }
+  if (manual && !S.update.available) {
+    $("#about-version").textContent = S.update.error === "not_public" ? t("update_private") : t("update_none", { v: S.update.current });
+    return;
+  }
+  renderUpdate(manual);
+}
+
+function renderUpdate(force = false) {
+  const u = S.update;
+  if (S.config) $("#about-version").textContent = t("version_now", { v: (u && u.current) || "" });
+  if (!u || !u.available) { $("#update-bar").hidden = true; return; }
+  if (!force && load("gp.skipUpdate", "") === u.version && u.download?.status !== "ready") { $("#update-bar").hidden = true; return; }
+  $("#update-bar").hidden = false;
+  const st = u.download?.status || "idle";
+  $("#update-text").textContent = st === "downloading" ? t("update_downloading", { v: u.version })
+    : st === "ready" ? t("update_ready", { v: u.version })
+    : st === "error" ? t("update_failed")
+    : t("update_available", { v: u.version });
+  $("#update-prog").hidden = st !== "downloading";
+  $("#update-prog i").style.width = `${Math.round((u.download?.progress || 0) * 100)}%`;
+  const btn = $("#btn-update");
+  btn.hidden = st === "downloading";
+  btn.textContent = !u.can_install ? t("update_open_page") : st === "ready" ? t("update_restart") : st === "error" ? t("retry") : t("update_install");
+  $("#update-notes").href = u.page || "#";
+  $("#update-notes").textContent = t("update_whats_new");
+  $("#update-later").textContent = t("update_later");
+}
+
+async function doUpdate() {
+  const u = S.update;
+  if (!u) return;
+  if (!u.can_install) { window.open(u.page, "_blank", "noopener"); return; }
+  if (u.download?.status === "ready") {
+    $("#update-text").textContent = t("update_restarting");
+    try { await api("/api/update/apply", {}); } catch (e) { $("#update-text").textContent = errText(e); }
+    return;
+  }
+  try {
+    u.download = await api("/api/update/download", {});
+  } catch (e) { $("#update-text").textContent = errText(e); return; }
+  renderUpdate(true);
+  const timer = setInterval(async () => {
+    const r = await api("/api/update").catch(() => null);
+    if (!r) return;
+    S.update = r;
+    renderUpdate(true);
+    if (r.download.status !== "downloading") clearInterval(timer);
+  }, 700);
 }
 
 // ---------------------------------------------------------------- TikTok
@@ -594,12 +733,15 @@ function bind() {
   $("#btn-unhide-all").addEventListener("click", unhideAll);
   $("#tag-search").addEventListener("input", renderTags);
   $$("#hidden-filter button").forEach((b) => b.addEventListener("click", () => { S.hiddenFilter = b.dataset.reason; renderHidden(); }));
-  $$("#mode button").forEach((b) => b.addEventListener("click", () => {
-    S.mode = b.dataset.mode; store("gp.mode", S.mode);
-    $$("#mode button").forEach((x) => x.classList.toggle("on", x === b));
-    $("#mode-hint").textContent = t(S.mode === "tags" ? "mode_tags_hint" : "mode_library_hint");
-    renderTags();
-  }));
+  $$("#mode button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  const si = $("#seed-input");
+  let seedTimer = null;
+  si.addEventListener("input", () => { clearTimeout(seedTimer); seedTimer = setTimeout(searchSeeds, 280); });
+  si.addEventListener("keydown", seedKeys);
+  si.addEventListener("blur", () => setTimeout(() => ($("#seed-results").hidden = true), 180));
+  $("#btn-update").addEventListener("click", doUpdate);
+  $("#update-later").addEventListener("click", () => { $("#update-bar").hidden = true; if (S.update) store("gp.skipUpdate", S.update.version); });
+  $("#btn-check-update").addEventListener("click", () => checkUpdate(true));
   $$("#match-wrap button").forEach((b) => b.addEventListener("click", () => {
     S.match = b.dataset.match;
     $$("#match-wrap button").forEach((x) => x.classList.toggle("on", x === b));
@@ -612,7 +754,7 @@ function bind() {
 async function init() {
   bind();
   applyTheme();
-  $$("#mode button").forEach((x) => x.classList.toggle("on", x.dataset.mode === S.mode));
+  setMode(S.mode);
   applyI18n();
   try {
     S.config = await api("/api/config");
@@ -626,6 +768,7 @@ async function init() {
     }
   } catch (e) { showError(e); return; }
   renderHidden();
+  checkUpdate();
   if (!S.config.configured) { openSettings(); return; }
   const r = await api("/api/library").catch(() => ({}));
   if (r.summary) { S.library = r.summary; renderLibrary(); renderTags(); }

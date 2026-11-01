@@ -38,10 +38,10 @@ def check(current, force=False):
     """Информация о последнем релизе. Кэш на 3 часа, чтобы не упираться в лимит GitHub."""
     if not force and _CACHE["data"] and time.time() - _CACHE["ts"] < 3 * 3600:
         return _CACHE["data"]
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/{REPO}/releases/latest",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": UA},
-    )
+    hdrs = {"Accept": "application/vnd.github+json", "User-Agent": UA}
+    if os.environ.get("GAMEPICKER_GH_TOKEN"):  # только в сборке на GitHub, чтобы не упереться в лимит
+        hdrs["Authorization"] = "Bearer " + os.environ["GAMEPICKER_GH_TOKEN"]
+    req = urllib.request.Request(f"https://api.github.com/repos/{REPO}/releases/latest", headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             rel = json.loads(r.read().decode("utf-8"))

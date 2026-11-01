@@ -59,7 +59,9 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.4.0"
+if os.environ.get("GAMEPICKER_FAKE_VERSION") and "--after-update" not in sys.argv:
+    APP_VERSION = os.environ["GAMEPICKER_FAKE_VERSION"]  # только для проверки обновления в сборке
 LAST_PING = [0.0]
 SERVER = {"srv": None}
 WEBVIEW = {"active": False, "module": None, "extra": []}
