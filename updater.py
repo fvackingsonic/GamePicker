@@ -170,7 +170,12 @@ def apply_and_restart(before_exit):
             before_exit()
         finally:
             flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-            subprocess.Popen([exe, "--after-update"], close_fds=True, creationflags=flags)
+            # Новая копия не должна наследовать временную папку старой (PyInstaller onefile),
+            # иначе она падает, когда старая удаляет свою распаковку.
+            env = {k: v for k, v in os.environ.items() if not (k.startswith("_PYI") or k.startswith("_MEI"))}
+            env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+            env.pop("GAMEPICKER_FAKE_VERSION", None)
+            subprocess.Popen([exe, "--after-update"], close_fds=True, creationflags=flags, env=env, cwd=os.path.dirname(exe))
             os._exit(0)
     threading.Thread(target=go, daemon=True).start()
 

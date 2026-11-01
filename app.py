@@ -368,6 +368,10 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:  # noqa: BLE001
                         pass
                 if SERVER["srv"]:
+                    try:
+                        SERVER["srv"].shutdown()  # сначала остановить цикл, потом закрыть сокет
+                    except Exception:  # noqa: BLE001
+                        pass
                     SERVER["srv"].server_close()
             try:
                 updater.apply_and_restart(before_exit)
