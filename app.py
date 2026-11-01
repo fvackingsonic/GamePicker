@@ -280,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": {"code": "bad_request"}})
         if url.path == "/api/tiktok":
             try:
-                return self._send(200, {"ids": tiktok_ids(q.get("q", "").strip())})
+                return self._send(200, {"ids": tiktok_ids(q.get("q", "").strip(), q.get("mode", "offscreen"))})
             except SteamError as e:
                 return self._send(200, {"ids": [], "error": e.code})
         if url.path == "/api/win":
@@ -466,12 +466,16 @@ def close_app():
 TT_JS = "Array.from(document.querySelectorAll('a[href*=\"/video/\"]')).map(function(a){return a.href})"
 
 
-def tiktok_ids(query):
+TT_DIAG = "document.title + ' | ' + location.href + ' | a=' + document.querySelectorAll('a').length + ' | ' + (document.body ? document.body.innerText.replace(/\\s+/g, ' ').slice(0, 160) : '')"
+
+
+def tiktok_ids(query, mode="offscreen"):
     """ID видео TikTok по запросу: открываем поиск TikTok в скрытом окне и собираем ссылки на видео.
     Сами видео потом играют через официальный встраиваемый плеер TikTok (без входа и лайков)."""
     if not query:
         return []
     key = query.lower()
+    key = f"{mode}:{key}"
     hit = TT["cache"].get(key)
     if hit and time.time() - hit[0] < 6 * 3600 and hit[1]:
         return hit[1]
@@ -480,7 +484,11 @@ def tiktok_ids(query):
     with TT["lock"]:
         wv = WEBVIEW["module"]
         url = "https://www.tiktok.com/search/video?q=" + urllib.parse.quote(query)
-        w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, hidden=True)
+        if mode == "hidden":
+            w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, hidden=True)
+        else:  # обычное окно за пределами экрана: TikTok может не грузиться в скрытом
+            w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, x=-6000, y=-6000,
+                                 focus=False, on_top=False)
         ids = []
         try:
             for i in range(32):
@@ -493,6 +501,11 @@ def tiktok_ids(query):
                     m = re.search(r"/video/(\d{8,})", str(h))
                     if m and m.group(1) not in ids:
                         ids.append(m.group(1))
+                if i in (0, 6, 31) or (ids and i % 10 == 0):
+                    try:
+                        log(f"TikTok scan [{mode}] #{i}: {w.evaluate_js(TT_DIAG)}")
+                    except Exception as e:  # noqa: BLE001
+                        log(f"TikTok scan [{mode}] #{i}: diag error {e!r}")
                 if len(ids) >= 30:
                     break
                 if i % 3 == 2:

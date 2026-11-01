@@ -80,7 +80,14 @@ jobs:
             $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
             $g = [System.Drawing.Graphics]::FromImage($bmp)
             $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
-            $bmp.Save("shots\$name.png"); $g.Dispose(); $bmp.Dispose()
+            $bmp.Save("shots\$name.png"); $g.Dispose()
+            $small = New-Object System.Drawing.Bitmap $bmp, 760, ([int](760 * $b.Height / $b.Width))
+            $enc = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" }
+            $ep = New-Object System.Drawing.Imaging.EncoderParameters 1
+            $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 62L
+            $ms = New-Object System.IO.MemoryStream; $small.Save($ms, $enc, $ep)
+            "SHOT:$($name):" + [Convert]::ToBase64String($ms.ToArray())
+            $small.Dispose(); $bmp.Dispose()
           }
           $p = Start-Process dist\GamePicker.exe -PassThru
           Start-Sleep -Seconds 22
@@ -94,7 +101,9 @@ jobs:
           Start-Sleep -Seconds 2; Shot "2_maximized"
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"max"}' "$base/api/win"; "after restore: $($m.rect | ConvertTo-Json -Compress)" } catch { "restore error: $_" }
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"rect","x":60,"y":40,"w":1100,"h":760}' "$base/api/win"; "after resize: $($m.rect | ConvertTo-Json -Compress)" } catch { "resize error: $_" }
-          try { $tt = Invoke-RestMethod -TimeoutSec 60 "$base/api/tiktok?q=Hades"; "tiktok ids: $($tt.ids.Count) first=$($tt.ids | Select-Object -First 3) error=$($tt.error)" } catch { "tiktok error: $_" }
+          foreach ($mode in @("offscreen", "hidden")) {
+            try { $tt = Invoke-RestMethod -TimeoutSec 90 "$base/api/tiktok?q=Hades&mode=$mode"; "tiktok[$mode] ids: $($tt.ids.Count) first=$($tt.ids | Select-Object -First 3) error=$($tt.error)" } catch { "tiktok[$mode] error: $_" }
+          }
           Start-Sleep -Seconds 1; Shot "3_after"
           Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
           Stop-Process -Name GamePicker -Force -ErrorAction SilentlyContinue
