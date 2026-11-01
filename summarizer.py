@@ -135,14 +135,14 @@ def summarize(appid, name, lang, anthropic_key="", model="", workspace=""):
         return hit
     first_err = None
     try:
-        data_all = app_reviews(appid, "all", 100)
+        data_all = app_reviews(appid, "all", 100, STORE_LANG.get(lang, "english"))
     except SteamError as e:
         first_err = e
         data_all = {}
     reviews_all = data_all.get("reviews", []) or []
     summary = data_all.get("query_summary", {}) or {}
     try:
-        reviews_local = app_reviews(appid, STORE_LANG.get(lang, "english"), 40).get("reviews", []) or []
+        reviews_local = app_reviews(appid, STORE_LANG.get(lang, "english"), 40, STORE_LANG.get(lang, "english")).get("reviews", []) or []
     except SteamError as e:
         first_err = first_err or e
         reviews_local = []

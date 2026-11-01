@@ -225,17 +225,26 @@ def store_details(appid, cc="ua", lang="ru"):
     return entry.get("data") if entry.get("success") else None
 
 
-def app_reviews(appid, language="all", num=100):
+def app_reviews(appid, language="all", num=100, display_lang="english"):
+    """Отзывы через IUserReviewsService/GetAppReviews (старый /appreviews Valve отключила 22.10.2026).
+
+    Возвращает тот же вид, что и раньше: {"query_summary": {...}, "reviews": [...]}.
+    """
+    payload = {
+        "appid": int(appid),
+        "filter": 0,                 # самые полезные
+        "day_range": 0,              # за всё время
+        "languages": [language],     # "all" или, например, "russian"
+        "review_type": 0,            # все
+        "purchase_type": 1,          # все покупки (Steam и ключи)
+        "num_per_page": max(1, min(100, int(num))),
+        "cursor": "*",
+        "display_language": display_lang,
+    }
     d = http_json(
-        f"https://store.steampowered.com/appreviews/{appid}",
-        {
-            "json": 1,
-            "language": language,
-            "filter": "all",
-            "review_type": "all",
-            "purchase_type": "all",
-            "num_per_page": num,
-        },
+        "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/",
+        {"input_json": json.dumps(payload, separators=(",", ":"))},
         ttl=3 * 86400,
     )
-    return d or {}
+    resp = (d or {}).get("response") or {}
+    return {"query_summary": resp.get("query_summary") or {}, "reviews": resp.get("reviews") or []}
