@@ -1,0 +1,6 @@
+# личные ключи и кэш — не в репозиторий
+config.json
+cache/
+__pycache__/
+*.pyc
+.DS_Store

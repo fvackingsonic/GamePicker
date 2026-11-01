@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GamePicker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23c6f24e'/><path d='M9 13h14a4 4 0 0 1 0 8h-1l-2-2h-8l-2 2h-1a4 4 0 0 1 0-8z' fill='%23111'/></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">GP</div>
+      <div>
+        <div class="brand-name">GamePicker</div>
+        <div class="tagline" data-i18n="tagline"></div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="lang" role="group" aria-label="Language">
+        <button data-lang="ru">RU</button><button data-lang="uk">UK</button><button data-lang="en">EN</button>
+      </div>
+      <button class="ghost" id="btn-settings" data-i18n="settings"></button>
+    </div>
+  </header>
+
+  <!-- Настройки -->
+  <dialog id="settings">
+    <form method="dialog" id="settings-form">
+      <h2 data-i18n="setup_title"></h2>
+      <p class="muted" data-i18n="setup_text"></p>
+      <label><span data-i18n="f_key"></span>
+        <input name="steam_api_key" autocomplete="off" spellcheck="false">
+        <small data-i18n="f_key_hint"></small>
+      </label>
+      <label><span data-i18n="f_profile"></span>
+        <input name="steam_profile" placeholder="https://steamcommunity.com/id/…" spellcheck="false">
+        <small data-i18n="f_profile_hint"></small>
+      </label>
+      <label><span data-i18n="f_country"></span>
+        <select name="country">
+          <option value="ua">Україна (₴)</option><option value="us">USA ($)</option>
+          <option value="eu">Europe (€)</option><option value="pl">Polska (zł)</option>
+          <option value="kz">Қазақстан (₸)</option><option value="gb">UK (£)</option>
+          <option value="tr">Türkiye ($)</option>
+        </select>
+      </label>
+      <details>
+        <summary data-i18n="f_ai_key"></summary>
+        <label><input name="anthropic_api_key" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+          <small data-i18n="f_ai_hint"></small></label>
+        <label><span data-i18n="f_model"></span><input name="claude_model"></label>
+      </details>
+      <div class="err" id="settings-err"></div>
+      <div class="row end">
+        <button type="button" class="ghost" id="settings-cancel" data-i18n="cancel"></button>
+        <button type="submit" class="primary" data-i18n="save"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <main class="layout">
+    <aside class="side">
+      <section class="card" id="lib-card" hidden>
+        <div class="row between">
+          <h3 data-i18n="library"></h3>
+          <button class="link" id="btn-refresh" data-i18n="refresh"></button>
+        </div>
+        <div class="stats" id="lib-stats"></div>
+        <h4 data-i18n="your_tags"></h4>
+        <div id="lib-tags" class="bars"></div>
+        <h4 data-i18n="top_games"></h4>
+        <ol id="lib-games" class="top-games"></ol>
+      </section>
+
+      <section class="card">
+        <div class="seg" id="mode">
+          <button data-mode="library" class="on" data-i18n="mode_library"></button>
+          <button data-mode="tags" data-i18n="mode_tags"></button>
+        </div>
+        <p class="muted small" id="mode-hint"></p>
+
+        <h4><span data-i18n="categories"></span> <small class="muted" data-i18n="tags_help"></small></h4>
+        <input id="tag-search" class="search" data-i18n-ph="tag_search">
+        <div id="tag-chips" class="chips"></div>
+        <div id="match-wrap" class="seg small" hidden>
+          <button data-match="any" class="on" data-i18n="match_any"></button>
+          <button data-match="all" data-i18n="match_all"></button>
+        </div>
+
+        <h4 data-i18n="filters"></h4>
+        <div class="grid2">
+          <label><span data-i18n="max_price"></span><input type="number" min="0" step="1" id="f-price" data-i18n-ph="max_price_ph"></label>
+          <label><span data-i18n="count"></span><input type="number" min="3" max="30" value="12" id="f-count"></label>
+          <label><span data-i18n="min_rating"></span>
+            <div class="range"><input type="range" min="0" max="95" step="5" value="75" id="f-rating"><b id="f-rating-v">75%</b></div></label>
+          <label><span data-i18n="min_reviews"></span><input type="number" min="0" step="10" value="100" id="f-reviews"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="f-gems"> <span><b data-i18n="gems"></b><small class="muted" data-i18n="gems_hint"></small></span></label>
+        <label class="check"><input type="checkbox" id="f-discount"> <span data-i18n="discount_only"></span></label>
+        <label class="check"><input type="checkbox" id="f-free"> <span data-i18n="free_only"></span></label>
+        <button class="primary wide" id="btn-find" data-i18n="find"></button>
+        <div class="muted small" id="hidden-info"></div>
+      </section>
+    </aside>
+
+    <section class="results">
+      <div id="progress" class="progress" hidden>
+        <div class="bar"><i id="progress-bar"></i></div>
+        <div id="progress-text" class="muted"></div>
+        <div class="muted small" data-i18n="first_run"></div>
+      </div>
+      <div id="error" class="err big" hidden></div>
+      <div id="results-meta" class="muted small"></div>
+      <div id="results" class="grid"></div>
+      <div id="placeholder" class="placeholder" data-i18n="start_hint"></div>
+      <button class="ghost wide" id="btn-more" hidden data-i18n="more"></button>
+    </section>
+  </main>
+
+  <template id="card-tpl">
+    <article class="game">
+      <a class="cover" target="_blank" rel="noopener"><img loading="lazy" alt=""></a>
+      <div class="body">
+        <div class="row between top-line">
+          <h3 class="name"></h3>
+          <div class="price"></div>
+        </div>
+        <div class="meta"></div>
+        <p class="desc"></p>
+        <div class="why"></div>
+        <div class="chips tags"></div>
+        <div class="summary" hidden></div>
+        <div class="actions">
+          <button class="ghost act-summary"></button>
+          <a class="ghost btn act-steam" target="_blank" rel="noopener"></a>
+          <a class="ghost btn act-app"></a>
+          <button class="link act-hide"></button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="/i18n.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
