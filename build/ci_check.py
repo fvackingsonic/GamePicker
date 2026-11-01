@@ -34,6 +34,12 @@ assert media and media["screenshots"], "no screenshots"
 mv = media["movies"][0]
 print("movie", mv)
 
+try:
+    with urllib.request.urlopen(urllib.request.Request("https://cdn.cloudflare.steamstatic.com/steam/apps/1145360/library_600x900.jpg", method="HEAD"), timeout=20) as resp:
+        print("portrait cover", resp.status, resp.headers.get("Content-Type"))
+except Exception as e:  # noqa: BLE001
+    print("portrait cover failed (fallback to header will be used):", e)
+
 found = s.store_search("Hades", "ua", "ru")
 print("store_search", len(found), found[:2])
 assert found, "store search empty"

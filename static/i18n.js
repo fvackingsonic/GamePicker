@@ -548,3 +548,47 @@ Object.assign(I18N.en, {
   update_available: "Version {v} is out", update_install: "Update", update_downloading: "Downloading version {v}…", update_ready: "Version {v} downloaded", update_restart: "Restart and update",
   update_restarting: "Restarting…", update_failed: "Couldn't download the update", update_open_page: "Open download page", update_whats_new: "What's new", update_later: "Later",
 });
+
+// ---- v1.5: новый интерфейс
+Object.assign(I18N.ru, {
+  tab_taste: "Мой вкус", search_ph: "Найти игру и искать похожие…",
+  chip_price: "Цена", chip_rating: "Рейтинг", chip_tags: "Теги", chip_sale: "Скидки", chip_gems: "Жемчужины", chip_more: "Ещё",
+  side_hint: "Выбери игру слева: здесь появятся трейлер, скриншоты и что о ней говорят игроки.",
+  taste_tags_hint: "Нажми на тег, чтобы искать по нему.", taste_empty: "Библиотека ещё не загружена.",
+  taste_line2: "<b>{games}</b> игр и <b>{hours}</b> ч в Steam{family}. Не запускались: {unplayed}.",
+  from_x: "от {x}", to_x: "до {x}", excluded_n: "без {n}", from: "от", to: "до", free_only_short: "Бесплатные", reset: "Сбросить",
+  price_currency_hint: "в валюте магазина", any: "Любое", match_any_short: "Любой", match_all_short: "Все сразу",
+  seeds_label: "Похожие на:", unavailable_short: "Нет в продаже", card_why: "Как {game}",
+  meta_library: "{n} игр, похожих на то, во что ты играешь больше всего", meta_games: "{n} игр, похожих на {games}", meta_tags: "{n} игр: {tags}",
+  why_you: "Почему тебе", rating_line: "{r}% положительных", gem_line: "Малоизвестная игра с хорошими оценками", fullscreen: "На весь экран",
+  update_downloading_pct: "Скачиваю {v}… {p}%", mode_library: "По моим играм", mode_tags: "По категориям",
+  start_hint: "Нажми «Подобрать», и появятся игры под твой вкус.", empty: "Ничего не нашлось. Ослабь фильтры или выбери другие игры и теги.",
+});
+Object.assign(I18N.uk, {
+  tab_taste: "Мій смак", search_ph: "Знайти гру й шукати схожі…",
+  chip_price: "Ціна", chip_rating: "Рейтинг", chip_tags: "Теги", chip_sale: "Знижки", chip_gems: "Перлини", chip_more: "Ще",
+  side_hint: "Обери гру ліворуч: тут з'являться трейлер, скриншоти й що про неї кажуть гравці.",
+  taste_tags_hint: "Натисни на тег, щоб шукати за ним.", taste_empty: "Бібліотеку ще не завантажено.",
+  taste_line2: "<b>{games}</b> ігор і <b>{hours}</b> год у Steam{family}. Не запускались: {unplayed}.",
+  from_x: "від {x}", to_x: "до {x}", excluded_n: "без {n}", from: "від", to: "до", free_only_short: "Безкоштовні", reset: "Скинути",
+  price_currency_hint: "у валюті магазину", any: "Будь-яке", match_any_short: "Будь-який", match_all_short: "Усі разом",
+  seeds_label: "Схожі на:", unavailable_short: "Немає в продажу", card_why: "Як {game}",
+  meta_library: "{n} ігор, схожих на те, у що ти граєш найбільше", meta_games: "{n} ігор, схожих на {games}", meta_tags: "{n} ігор: {tags}",
+  why_you: "Чому тобі", rating_line: "{r}% позитивних", gem_line: "Маловідома гра з гарними оцінками", fullscreen: "На весь екран",
+  update_downloading_pct: "Завантажую {v}… {p}%", mode_library: "За моїми іграми", mode_tags: "За категоріями",
+  start_hint: "Натисни «Дібрати», і з'являться ігри під твій смак.", empty: "Нічого не знайшлося. Послаб фільтри або обери інші ігри й теги.",
+});
+Object.assign(I18N.en, {
+  tab_taste: "My taste", search_ph: "Find a game to get similar ones…",
+  chip_price: "Price", chip_rating: "Rating", chip_tags: "Tags", chip_sale: "On sale", chip_gems: "Hidden gems", chip_more: "More",
+  side_hint: "Pick a game on the left to see its trailer, screenshots and what players say.",
+  taste_tags_hint: "Click a tag to search by it.", taste_empty: "Library not loaded yet.",
+  taste_line2: "<b>{games}</b> games and <b>{hours}</b> h on Steam{family}. Never launched: {unplayed}.",
+  from_x: "from {x}", to_x: "up to {x}", excluded_n: "without {n}", from: "from", to: "to", free_only_short: "Free", reset: "Reset",
+  price_currency_hint: "in store currency", any: "Any", match_any_short: "Any", match_all_short: "All",
+  seeds_label: "Similar to:", unavailable_short: "Not for sale", card_why: "Like {game}",
+  meta_library: "{n} games similar to what you play most", meta_games: "{n} games similar to {games}", meta_tags: "{n} games: {tags}",
+  why_you: "Why you", rating_line: "{r}% positive", gem_line: "Lesser-known game with great reviews", fullscreen: "Fullscreen",
+  update_downloading_pct: "Downloading {v}… {p}%", mode_library: "From my games", mode_tags: "By category",
+  start_hint: "Press “Find games” to see games picked for you.", empty: "Nothing found. Loosen the filters or pick other games and tags.",
+});

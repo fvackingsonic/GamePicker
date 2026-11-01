@@ -59,7 +59,7 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 if os.environ.get("GAMEPICKER_FAKE_VERSION") and "--after-update" not in sys.argv:
     APP_VERSION = os.environ["GAMEPICKER_FAKE_VERSION"]  # только для проверки обновления в сборке
 LAST_PING = [0.0]
@@ -454,7 +454,7 @@ def run_window(url):
     shown = threading.Event()
     try:
         win = webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
-                                    background_color="#e9e6f2", text_select=True)
+                                    background_color="#0f0f12", text_select=True)
         win.events.shown += shown.set
         WEBVIEW["module"] = webview
         win.events.shown += lambda: WEBVIEW.update(active=True)
