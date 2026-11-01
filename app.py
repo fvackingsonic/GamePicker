@@ -19,6 +19,12 @@ from recommender import build_profile, library_summary, recommend
 from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
 from summarizer import summarize
 
+# В оконном exe нет консоли (stdout/stderr = None) — пишем вывод в лог
+if sys.stdout is None or sys.stderr is None:
+    _log = open(os.path.join(DATA_DIR, "gamepicker.log"), "a", encoding="utf-8", buffering=1)
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
+
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
