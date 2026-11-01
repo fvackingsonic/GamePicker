@@ -61,7 +61,7 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
 if os.environ.get("GAMEPICKER_FAKE_VERSION") and "--after-update" not in sys.argv:
     APP_VERSION = os.environ["GAMEPICKER_FAKE_VERSION"]  # только для проверки обновления в сборке
 LAST_PING = [0.0]
@@ -496,6 +496,15 @@ def _tt_scan(wv, url, mode):
     try:
         for i in range(22):
             time.sleep(2.5 if i == 0 else 0.6)
+            try:
+                here = str(w.evaluate_js("location.pathname") or "")
+            except Exception:  # noqa: BLE001
+                here = ""
+            want = urllib.parse.urlparse(url).path
+            if here and i >= 1 and not here.startswith(want.rstrip("/")):
+                log(f"TikTok: {url} перенаправил на {here}, пропускаю")
+                ids = []
+                break
             try:
                 hrefs = w.evaluate_js(TT_JS) or []
             except Exception:  # noqa: BLE001
