@@ -19,16 +19,41 @@ from recommender import build_profile, library_summary, recommend
 from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
 from summarizer import summarize
 
-# В оконном exe нет консоли (stdout/stderr = None) — пишем вывод в лог
-if sys.stdout is None or sys.stderr is None:
-    _log = open(os.path.join(DATA_DIR, "gamepicker.log"), "a", encoding="utf-8", buffering=1)
-    sys.stdout = sys.stdout or _log
-    sys.stderr = sys.stderr or _log
+LOG_PATH = os.path.join(DATA_DIR, "gamepicker.log")
+# В exe (и вообще без консоли) весь вывод пишем в лог-файл
+if FROZEN or sys.stdout is None or sys.stderr is None:
+    try:
+        if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > 1_000_000:
+            os.replace(LOG_PATH, LOG_PATH + ".old")
+        _log = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+        sys.stdout = _log if (FROZEN or sys.stdout is None) else sys.stdout
+        sys.stderr = _log if (FROZEN or sys.stderr is None) else sys.stderr
+    except OSError:
+        pass
+
+
+def log(msg):
+    try:
+        print(time.strftime("%Y-%m-%d %H:%M:%S"), msg, flush=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def fatal_box(text):
+    """Показать ошибку окном Windows (в exe нет консоли)."""
+    log("FATAL: " + text)
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                None, f"{text}\n\nЛог: {LOG_PATH}", "GamePicker — ошибка", 0x10)
+        except Exception:  # noqa: BLE001
+            pass
 
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 LAST_PING = [0.0]
 DEFAULT_CONFIG = {
     "steam_api_key": "",
@@ -243,45 +268,88 @@ def watchdog(srv):
     while True:
         time.sleep(10)
         if LAST_PING[0] and time.monotonic() - LAST_PING[0] > 45:
+            log("Вкладка закрыта — выход")
             srv.shutdown()
+            srv._stopped = True
             return
+
+
+def already_running(port):
+    """Если GamePicker уже запущен — вернуть его адрес."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://{HOST}:{port}/api/ping", timeout=1.5) as r:
+            if json.loads(r.read().decode()).get("ok"):
+                return f"http://{HOST}:{port}"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def run_window(url):
+    """Открыть приложение в собственном окне. True — окно было показано."""
+    try:
+        import webview  # pywebview
+    except Exception:  # noqa: BLE001
+        log("pywebview недоступен:\n" + traceback.format_exc())
+        return False
+    shown = threading.Event()
+    try:
+        win = webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
+                                    background_color="#0f1115", text_select=True)
+        win.events.shown += shown.set
+        kwargs = {"gui": "edgechromium"} if os.name == "nt" else {}
+        webview.start(**kwargs)
+    except Exception:  # noqa: BLE001 — нет WebView2 и т.п.
+        log("Окно не открылось:\n" + traceback.format_exc())
+        return shown.is_set()
+    if not shown.is_set():
+        log("webview.start завершился, а окно так и не показалось")
+    return shown.is_set()
 
 
 def main():
+    log(f"Старт GamePicker {APP_VERSION}, frozen={FROZEN}, argv={sys.argv[1:]}")
+    mode_browser = "--browser" in sys.argv
+    headless = "--no-browser" in sys.argv
+
+    running = already_running(PORT)
+    if running and not headless:
+        log("Уже запущен — открываю его")
+        if not (not mode_browser and run_window(running)):
+            webbrowser.open(running)
+        return
+
     port = free_port(PORT)
     srv = ThreadingHTTPServer((HOST, port), Handler)
     url = f"http://{HOST}:{srv.server_address[1]}"
-    print(f"GamePicker {APP_VERSION}: {url}  (Ctrl+C — остановить)")
+    log(f"Сервер: {url}")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
 
-    use_window = "--browser" not in sys.argv and "--no-browser" not in sys.argv
-    if use_window:
-        try:
-            import webview  # pywebview: отдельное окно приложения
-        except ImportError:
-            use_window = False
-
-    if use_window:
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        icon = os.path.join(BASE_DIR, "assets", "icon.png")
-        webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
-                              background_color="#0f1115", text_select=True)
-        try:
-            webview.start(icon=icon if os.path.exists(icon) else None)
-        except Exception:  # noqa: BLE001 — нет WebView2 и т.п.: откроем в браузере
-            use_window = False
-        else:
+    if not headless and not mode_browser:
+        if run_window(url):
+            log("Окно закрыто — выход")
             srv.shutdown()
             return
+        log("Открываю в браузере")
 
-    if "--no-browser" not in sys.argv:
-        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    if not headless:
+        webbrowser.open(url)
     if FROZEN:
         threading.Thread(target=watchdog, args=(srv,), daemon=True).start()
     try:
-        srv.serve_forever()
+        while True:
+            time.sleep(1)
+            if getattr(srv, "_stopped", False):
+                break
     except KeyboardInterrupt:
         print("\nОстановлено.")
+        srv.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:  # noqa: BLE001
+        fatal_box("GamePicker не смог запуститься:\n\n" + traceback.format_exc(limit=3))
+        sys.exit(1)

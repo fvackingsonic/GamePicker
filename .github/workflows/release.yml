@@ -55,6 +55,21 @@ jobs:
           if (-not $ok) { throw "GamePicker.exe did not start" }
           (Get-Item dist\GamePicker.exe).Length / 1MB
 
+      - name: Window-mode test (как при двойном клике)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Remove-Item "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
+          $p = Start-Process dist\GamePicker.exe -PassThru
+          Start-Sleep -Seconds 25
+          $alive = -not $p.HasExited
+          try { $r = Invoke-RestMethod http://127.0.0.1:8765/api/ping; $ping = $r.ok } catch { $ping = $false }
+          "alive=$alive ping=$ping"
+          Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
+          if ($alive) { Stop-Process -Id $p.Id -Force }
+          Get-Process | Where-Object { $_.ProcessName -like "msedgewebview2*" } | Measure-Object | Select-Object -ExpandProperty Count
+          if (-not ($alive -and $ping)) { throw "window mode failed" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: GamePicker-exe
