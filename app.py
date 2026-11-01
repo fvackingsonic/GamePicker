@@ -485,6 +485,7 @@ def main():
     headless = "--no-browser" in sys.argv
 
     updater.cleanup_old()
+    threading.Timer(6, updater.cleanup_old).start()  # после обновления старая копия закрывается не мгновенно
     if "--after-update" in sys.argv:  # ждём, пока старая версия освободит порт
         for _ in range(40):
             if not already_running(PORT):
