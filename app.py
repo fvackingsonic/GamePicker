@@ -57,7 +57,7 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.2.1"
+APP_VERSION = "1.3.0"
 LAST_PING = [0.0]
 DEFAULT_CONFIG = {
     "steam_api_key": "",

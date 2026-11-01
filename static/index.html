@@ -173,10 +173,26 @@
     </form>
   </dialog>
 
+  <!-- ============ Просмотр скриншотов и видео ============ -->
+  <dialog id="viewer" aria-labelledby="viewer-title">
+    <div class="viewer-head">
+      <p class="viewer-title" id="viewer-title"></p>
+      <p class="viewer-count" id="viewer-count"></p>
+      <button class="viewer-close" id="viewer-close" data-i18n-title="close">✕</button>
+    </div>
+    <div class="viewer-stage">
+      <button class="viewer-nav prev" id="viewer-prev" data-i18n-title="prev">‹</button>
+      <div class="viewer-media" id="viewer-media"></div>
+      <button class="viewer-nav next" id="viewer-next" data-i18n-title="next">›</button>
+    </div>
+    <div class="viewer-thumbs" id="viewer-thumbs"></div>
+  </dialog>
+
   <template id="ticket-tpl">
     <article class="ticket">
       <a class="cover" target="_blank" rel="noopener"><img loading="lazy" alt=""></a>
       <div class="stickers"></div>
+      <div class="media-strip" hidden></div>
       <div class="t-body">
         <h3 class="t-name"></h3>
         <p class="t-sub"></p>

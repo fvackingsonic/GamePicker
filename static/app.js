@@ -332,6 +332,7 @@ function renderResults() {
     if (g.gem) stickers.push(`<span class="sticker gem">${esc(t("gem_badge"))}</span>`);
     $(".stickers", el).innerHTML = stickers.join("");
 
+    renderStrip(g, el);
     $(".t-name", el).textContent = g.name;
     $(".t-sub", el).textContent = [g.developers?.[0], g.release].filter(Boolean).join(", ");
     const tmp = document.createElement("template");
@@ -411,6 +412,109 @@ function summaryHtml(s) {
   return parts.join("");
 }
 
+// ---------------------------------------------------------------- media
+function mediaItems(g) {
+  const m = g.media || { screenshots: [], movies: [] };
+  const vids = (m.movies || []).map((v) => ({ type: "video", thumb: v.thumb, hls: v.hls, mp4: v.mp4, name: v.name }));
+  const shots = (m.screenshots || []).map((s) => ({ type: "image", thumb: s.thumb, full: s.full }));
+  // сначала главный трейлер, потом скриншоты, остальные видео в конце
+  return [...vids.slice(0, 1), ...shots, ...vids.slice(1)];
+}
+
+function renderStrip(g, el) {
+  const items = mediaItems(g);
+  const strip = $(".media-strip", el);
+  if (!items.length) return;
+  const show = items.slice(0, 5);
+  strip.innerHTML = show.map((it, i) => {
+    const more = i === show.length - 1 && items.length > show.length ? `<span class="more">+${items.length - show.length}</span>` : "";
+    const label = it.type === "video" ? t("trailer") : t("screenshot");
+    return `<button type="button" class="${it.type === "video" ? "play" : ""}" data-i="${i}" aria-label="${esc(label)}"><img loading="lazy" alt="" src="${esc(it.thumb)}">${more}</button>`;
+  }).join("");
+  strip.hidden = false;
+  $$("button", strip).forEach((b) => b.addEventListener("click", () => openViewer(g, Number(b.dataset.i))));
+}
+
+const V = { game: null, items: [], i: 0, hls: null };
+let hlsPromise = null;
+function loadHls() {
+  if (window.Hls) return Promise.resolve();
+  if (!hlsPromise) {
+    hlsPromise = new Promise((resolve, reject) => {
+      const add = (src, onerr) => { const s = document.createElement("script"); s.src = src; s.onload = resolve; s.onerror = onerr; document.head.appendChild(s); };
+      add("/vendor/hls.min.js", () => add("https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js", () => { hlsPromise = null; reject(new Error("hls.js")); }));
+    });
+  }
+  return hlsPromise;
+}
+const viaProxy = (u) => { const m = /^https?:\/\/([^/]+)\/(.*)$/.exec(u || ""); return m ? `/media/${m[1]}/${m[2]}` : u; };
+
+function stopVideo() {
+  if (V.hls) { try { V.hls.destroy(); } catch { /* ignore */ } V.hls = null; }
+  const v = $("#viewer-media video");
+  if (v) { v.pause(); v.removeAttribute("src"); v.load(); }
+}
+
+function openViewer(g, index) {
+  V.game = g;
+  V.items = mediaItems(g);
+  $("#viewer-title").textContent = g.name;
+  $("#viewer-thumbs").innerHTML = V.items.map((it, i) =>
+    `<button type="button" class="${it.type === "video" ? "play" : ""}" data-i="${i}"><img loading="lazy" alt="" src="${esc(it.thumb)}"></button>`).join("");
+  $$("#viewer-thumbs button").forEach((b) => b.addEventListener("click", () => showItem(Number(b.dataset.i))));
+  if (!$("#viewer").open) $("#viewer").showModal();
+  showItem(index);
+}
+
+function videoError(box) {
+  stopVideo();
+  box.innerHTML = `<p class="viewer-err">${esc(t("video_error"))}<br><a href="https://store.steampowered.com/app/${V.game.appid}/" target="_blank" rel="noopener">${esc(t("open_steam"))}</a></p>`;
+}
+
+async function showItem(i) {
+  stopVideo();
+  V.i = Math.max(0, Math.min(V.items.length - 1, i));
+  const it = V.items[V.i];
+  const box = $("#viewer-media");
+  const shots = V.items.filter((x) => x.type === "image");
+  $("#viewer-count").textContent = it.type === "video"
+    ? `${t("trailer")}${it.name ? ": " + it.name : ""}`
+    : t("screenshot_n", { i: shots.indexOf(it) + 1, n: shots.length });
+  $$("#viewer-thumbs button").forEach((b, k) => b.classList.toggle("on", k === V.i));
+  $("#viewer-thumbs button.on")?.scrollIntoView({ block: "nearest", inline: "center" });
+  $("#viewer-prev").disabled = V.i === 0;
+  $("#viewer-next").disabled = V.i === V.items.length - 1;
+
+  if (it.type === "image") {
+    box.innerHTML = `<img alt="" src="${esc(it.full)}">`;
+    return;
+  }
+  box.innerHTML = `<video controls playsinline poster="${esc(it.thumb || "")}"></video>`;
+  const video = $("video", box);
+  video.addEventListener("error", () => videoError(box), { once: true });
+  try {
+    if (it.mp4) {
+      video.src = it.mp4;
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = viaProxy(it.hls);
+    } else {
+      await loadHls();
+      if (!window.Hls || !window.Hls.isSupported()) throw new Error("hls unsupported");
+      if (V.items[V.i] !== it) return; // пользователь уже переключился
+      const h = new window.Hls({ maxBufferLength: 20 });
+      V.hls = h;
+      h.on(window.Hls.Events.ERROR, (_e, data) => { if (data && data.fatal) videoError(box); });
+      h.loadSource(viaProxy(it.hls));
+      h.attachMedia(video);
+    }
+    video.play().catch(() => { /* автозапуск может быть запрещён — есть кнопка play */ });
+  } catch {
+    videoError(box);
+  }
+}
+
+function closeViewer() { stopVideo(); if ($("#viewer").open) $("#viewer").close(); }
+
 // ---------------------------------------------------------------- hidden
 async function hideGame(g, reason, el) {
   try {
@@ -457,6 +561,16 @@ function bind() {
   $$(".lang button").forEach((b) => b.addEventListener("click", () => { S.lang = b.dataset.lang; store("gp.lang", S.lang); applyI18n(); }));
   $$(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
   $("#btn-settings").addEventListener("click", openSettings);
+  $("#viewer-close").addEventListener("click", closeViewer);
+  $("#viewer").addEventListener("close", stopVideo);
+  $("#viewer").addEventListener("click", (e) => { if (e.target === $("#viewer")) closeViewer(); });
+  $("#viewer-prev").addEventListener("click", () => showItem(V.i - 1));
+  $("#viewer-next").addEventListener("click", () => showItem(V.i + 1));
+  document.addEventListener("keydown", (e) => {
+    if (!$("#viewer").open) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); showItem(V.i - 1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); showItem(V.i + 1); }
+  });
   $("#settings-form").addEventListener("submit", (e) => saveSettings(e).catch((err) => { $("#settings-err").textContent = errText(err); $("#settings-err").hidden = false; }));
   $("#settings-cancel").addEventListener("click", () => $("#settings").close());
   $("#btn-family").addEventListener("click", importFamily);

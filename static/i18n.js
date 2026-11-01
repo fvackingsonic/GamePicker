@@ -506,3 +506,6 @@ Object.assign(I18N.en, { theme_auto: "Match system", theme_light: "Light theme",
 Object.assign(I18N.ru, { retry: "Попробовать ещё раз", err_bad_response: "Steam вернул не те данные, что ожидались.", err_no_reviews: "У этой игры пока нет отзывов." });
 Object.assign(I18N.uk, { retry: "Спробувати ще раз", err_bad_response: "Steam повернув не ті дані, що очікувалися.", err_no_reviews: "У цієї гри поки немає відгуків." });
 Object.assign(I18N.en, { retry: "Try again", err_bad_response: "Steam returned unexpected data.", err_no_reviews: "This game has no reviews yet." });
+Object.assign(I18N.ru, { trailer: "Трейлер", screenshot: "Скриншот", screenshot_n: "Скриншот {i} из {n}", close: "Закрыть", prev: "Назад", next: "Вперёд", video_error: "Не получилось воспроизвести трейлер здесь. Его можно посмотреть на странице игры в Steam." });
+Object.assign(I18N.uk, { trailer: "Трейлер", screenshot: "Скриншот", screenshot_n: "Скриншот {i} з {n}", close: "Закрити", prev: "Назад", next: "Далі", video_error: "Не вдалося відтворити трейлер тут. Його можна переглянути на сторінці гри в Steam." });
+Object.assign(I18N.en, { trailer: "Trailer", screenshot: "Screenshot", screenshot_n: "Screenshot {i} of {n}", close: "Close", prev: "Previous", next: "Next", video_error: "Couldn't play the trailer here. You can watch it on the game's Steam page." });
