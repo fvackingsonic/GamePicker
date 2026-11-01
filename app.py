@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 from recommender import build_profile, game_card, library_summary, recommend
 import winctl
-from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, owned_games, resolve_steamid
+from steam_api import BASE_DIR, DATA_DIR, FROZEN, SteamError, cache_get, cache_set, http_json, owned_games, resolve_steamid
 from summarizer import summarize
 import userdata
 import updater
@@ -280,9 +280,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": {"code": "bad_request"}})
         if url.path == "/api/tiktok":
             try:
-                return self._send(200, {"ids": tiktok_ids(q.get("q", "").strip(), q.get("mode", "hidden"))})
+                if q.get("prefetch") == "1":
+                    tiktok_prefetch(q.get("q", "").strip())
+                    return self._send(200, {"ok": True})
+                vids = tiktok_videos(q.get("q", "").strip(), q.get("mode", "hidden"))
+                return self._send(200, {"videos": vids, "ids": [v["id"] for v in vids]})
             except SteamError as e:
-                return self._send(200, {"ids": [], "error": e.code})
+                return self._send(200, {"videos": [], "ids": [], "error": e.code})
         if url.path == "/api/win":
             return self._send(200, {"frameless": WEBVIEW["frameless"] and WEBVIEW["active"], "rect": winctl.rect()})
         if url.path == "/api/search":
@@ -463,18 +467,33 @@ def close_app():
             pass
 
 
-TT_JS = "Array.from(document.querySelectorAll('a[href*=\"/video/\"]')).map(function(a){return a.href})"
+# Для каждой ссылки на видео берём и число на карточке (просмотры/лайки), чтобы сортировать по популярности
+TT_JS = """Array.from(document.querySelectorAll('a[href*="/video/"]')).map(function (a) {
+  var box = a.closest('[data-e2e*="item"],[class*="ItemContainer"],[class*="DivContainer"]') || a.parentElement || a;
+  var v = box.querySelector('[data-e2e="video-views"],[data-e2e*="like-count"],strong');
+  return [a.href, v ? v.textContent : ''];
+})"""
+TT_DIAG = "document.title + ' | ' + location.href + ' | a=' + document.querySelectorAll('a').length"
+HALF_YEAR = 183 * 86400
 
 
-TT_DIAG = "document.title + ' | ' + location.href + ' | a=' + document.querySelectorAll('a').length + ' | ' + (document.body ? document.body.innerText.replace(/\\s+/g, ' ').slice(0, 160) : '')"
+def _tt_count(text):
+    m = re.search(r"([\d.,]+)\s*([KkMmBbКкМм]?)", str(text or ""))
+    if not m:
+        return 0
+    try:
+        n = float(m.group(1).replace(",", "."))
+    except ValueError:
+        return 0
+    mult = {"k": 1e3, "к": 1e3, "m": 1e6, "м": 1e6, "b": 1e9}.get(m.group(2).lower(), 1)
+    return int(n * mult)
 
 
 def _tt_urls(query):
     """Публичные страницы TikTok, которые открываются без входа, и поиск (работает, если вход уже был)."""
     base = re.sub(r"\s*[:\-–—(].*$", "", query).strip() or query  # «Hades II: …» → «Hades II»
     words = re.sub(r"[^0-9a-zA-Zа-яА-ЯёЁіїєґІЇЄҐ]+", " ", base).strip().lower().split()
-    tag = "".join(words)
-    dashed = "-".join(words)
+    tag, dashed = "".join(words), "-".join(words)
     urls = []
     if dashed:
         urls.append(f"https://www.tiktok.com/discover/{urllib.parse.quote(dashed)}-game")
@@ -486,73 +505,121 @@ def _tt_urls(query):
     return urls
 
 
-def _tt_scan(wv, url, mode):
+def _tt_scan(wv, url, mode="hidden"):
     if mode == "offscreen":
-        w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, x=-6000, y=-6000,
-                             focus=False, on_top=False)
+        w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, x=-6000, y=-6000, focus=False)
     else:
         w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, hidden=True)
-    ids = []
+    found = {}
+    want = urllib.parse.urlparse(url).path.rstrip("/")
     try:
-        for i in range(22):
-            time.sleep(2.5 if i == 0 else 0.6)
+        for i in range(26):
+            time.sleep(1.2 if i == 0 else 0.4)
             try:
                 here = str(w.evaluate_js("location.pathname") or "")
             except Exception:  # noqa: BLE001
                 here = ""
-            want = urllib.parse.urlparse(url).path
-            if here and i >= 1 and not here.startswith(want.rstrip("/")):
+            if here and i >= 2 and not here.startswith(want):
                 log(f"TikTok: {url} перенаправил на {here}, пропускаю")
-                ids = []
-                break
+                return []
             try:
-                hrefs = w.evaluate_js(TT_JS) or []
+                rows = w.evaluate_js(TT_JS) or []
             except Exception:  # noqa: BLE001
-                hrefs = []
-            for h in hrefs:
-                m = re.search(r"/video/(\d{8,})", str(h))
-                if m and m.group(1) not in ids:
-                    ids.append(m.group(1))
-            if i in (0, 8, 21):
-                try:
-                    log(f"TikTok scan [{mode}] {url} #{i}: {w.evaluate_js(TT_DIAG)}")
-                except Exception as e:  # noqa: BLE001
-                    log(f"TikTok scan [{mode}] #{i}: diag error {e!r}")
-            if len(ids) >= 30 or (ids and i >= 12):
+                rows = []
+            for row in rows:
+                href, cnt = (row + ["", ""])[:2] if isinstance(row, list) else (str(row), "")
+                m = re.search(r"/video/(\d{8,})", str(href))
+                if not m:
+                    continue
+                vid = m.group(1)
+                views = _tt_count(cnt)
+                if vid not in found or views > found[vid]["views"]:
+                    found[vid] = {"id": vid, "url": str(href).split("?")[0], "views": views,
+                                  "ts": int(vid) >> 32}
+            if len(found) >= 36 or (len(found) >= 12 and i >= 8):
                 break
-            if i % 3 == 2:
+            if i % 2 == 1:
                 try:
-                    w.evaluate_js("window.scrollBy(0, 3000)")
+                    w.evaluate_js("window.scrollBy(0, 3200)")
                 except Exception:  # noqa: BLE001
                     pass
+        try:
+            log(f"TikTok scan {url}: {w.evaluate_js(TT_DIAG)}, видео {len(found)}")
+        except Exception:  # noqa: BLE001
+            pass
     finally:
         try:
             w.destroy()
         except Exception:  # noqa: BLE001
             pass
-    return ids
+    return list(found.values())
 
 
-def tiktok_ids(query, mode="hidden"):
-    """ID видео TikTok об игре. Страницу TikTok открываем в невидимом окне и собираем ссылки на видео,
-    а играют они потом через официальный встраиваемый плеер TikTok (без входа и лайков)."""
+def _tt_oembed(item):
+    """Официальная проверка TikTok: можно ли встроить видео. Заодно берём название и автора."""
+    try:
+        d = http_json("https://www.tiktok.com/oembed", {"url": item["url"]}, ttl=7 * 86400, retries=2, timeout=12)
+    except SteamError:
+        return None
+    if not isinstance(d, dict) or not d.get("html"):
+        return None
+    return dict(item, title=(d.get("title") or "")[:140], author=d.get("author_name") or "")
+
+
+def _tt_rank(items):
+    """Сначала за последние полгода по популярности, старые — только если свежих мало."""
+    now = time.time()
+    recent = sorted([x for x in items if now - x["ts"] <= HALF_YEAR], key=lambda x: (-x["views"], -x["ts"]))
+    older = sorted([x for x in items if now - x["ts"] > HALF_YEAR], key=lambda x: (-x["views"], -x["ts"]))
+    for x in older:
+        x["old"] = True
+    return recent + (older if len(recent) < 8 else older[:4])
+
+
+def tiktok_videos(query, mode="hidden"):
+    """Видео TikTok об игре: публичные страницы без входа → проверка встраивания → свежие и популярные."""
     if not query:
         return []
-    key = f"{mode}:{query.lower()}"
-    hit = TT["cache"].get(key)
-    if hit and time.time() - hit[0] < 6 * 3600 and hit[1]:
-        return hit[1]
+    key = f"tiktok3:{mode}:{query.lower()}"
+    hit = cache_get(key, 12 * 3600)
+    if hit:
+        return hit
     if not WEBVIEW["active"] or not WEBVIEW["module"]:
         raise SteamError("no_window")
     with TT["lock"]:
-        ids = []
+        hit = cache_get(key, 12 * 3600)
+        if hit:
+            return hit
+        raw = []
         for url in _tt_urls(query):
-            ids = _tt_scan(WEBVIEW["module"], url, mode)
-            log(f"TikTok «{query}» {url}: видео {len(ids)}")
-            if len(ids) >= 3:
+            raw = _tt_scan(WEBVIEW["module"], url, mode)
+            if len(raw) >= 4:
                 break
-        TT["cache"][key] = (time.time(), ids)
-        return ids
+        ranked = _tt_rank(raw)[:40]
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            checked = [x for x in ex.map(_tt_oembed, ranked) if x]
+        log(f"TikTok «{query}»: найдено {len(raw)}, встраиваются {len(checked)}, "
+            f"за полгода {sum(1 for x in checked if not x.get('old'))}")
+        if checked:
+            cache_set(key, checked)
+        return checked
+
+
+def tiktok_prefetch(query):
+    """Тихий поиск заранее, пока человек смотрит игру. Не встаёт в очередь, если уже идёт другой."""
+    if not query or not WEBVIEW["active"] or TT["lock"].locked():
+        return
+    if cache_get(f"tiktok3:hidden:{query.lower()}", 12 * 3600):
+        return
+    threading.Thread(target=lambda: _safe(tiktok_videos, query), daemon=True).start()
+
+
+def _safe(fn, *a):
+    try:
+        fn(*a)
+    except Exception:  # noqa: BLE001
+        log("Фоновый TikTok:\n" + traceback.format_exc())
 
 
 def free_port(preferred):

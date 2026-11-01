@@ -103,7 +103,16 @@ jobs:
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"max"}' "$base/api/win"; "after restore: $($m.rect | ConvertTo-Json -Compress)" } catch { "restore error: $_" }
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"rect","x":60,"y":40,"w":1100,"h":760}' "$base/api/win"; "after resize: $($m.rect | ConvertTo-Json -Compress)" } catch { "resize error: $_" }
           foreach ($q in @("Palworld", "Hades II", "Stardew Valley")) {
-            try { $tt = Invoke-RestMethod -TimeoutSec 150 "$base/api/tiktok?q=$([uri]::EscapeDataString($q))"; "tiktok[$q] ids: $($tt.ids.Count) first=$($tt.ids | Select-Object -First 3) error=$($tt.error)" } catch { "tiktok[$q] error: $_" }
+            try {
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              $tt = Invoke-RestMethod -TimeoutSec 150 "$base/api/tiktok?q=$([uri]::EscapeDataString($q))"
+              $t1 = $sw.Elapsed.TotalSeconds
+              $sw.Restart(); $tt2 = Invoke-RestMethod -TimeoutSec 30 "$base/api/tiktok?q=$([uri]::EscapeDataString($q))"; $t2 = $sw.Elapsed.TotalSeconds
+              $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+              $recent = @($tt.videos | Where-Object { ($now - $_.ts) -le 183*86400 }).Count
+              $top = ($tt.videos | Select-Object -First 4 | ForEach-Object { "$($_.id):$($_.views):$([DateTimeOffset]::FromUnixTimeSeconds($_.ts).ToString('yyyy-MM-dd'))" }) -join " "
+              "tiktok[$q] videos=$($tt.videos.Count) recent=$recent first_call=$([math]::Round($t1,1))s cached=$([math]::Round($t2,2))s top: $top error=$($tt.error)"
+            } catch { "tiktok[$q] error: $_" }
           }
           Start-Sleep -Seconds 1; Shot "3_after"
           Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue

@@ -359,6 +359,8 @@ textarea.field { height: auto; padding: 10px 14px; font-size: 12.5px; resize: ve
 .tt-logo { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(135deg, #25f4ee, #fe2c55); color: #fff; font-weight: 800; }
 .tt-title { flex: 1; min-width: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tt-count { color: #8a8a95; font-size: 13px; }
+.tt-meta { color: #b9b9c2; font-size: 12.5px; white-space: nowrap; }
+.tt-meta.old { color: #8a8a95; }
 #tt .ico { background: #1d1d23; color: #ddd; }
 #tt .ico:hover { background: #2a2a31; }
 .tt-body { flex: 1; min-height: 0; display: flex; gap: 12px; align-items: center; justify-content: center; }

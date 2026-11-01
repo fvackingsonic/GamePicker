@@ -572,8 +572,11 @@ function metaLine() {
 }
 
 // ---------------------------------------------------------------- правая панель
+let ttPrefetchTimer = null;
 function select(g) {
   S.sel = g;
+  clearTimeout(ttPrefetchTimer);
+  if (g) ttPrefetchTimer = setTimeout(() => { if (S.sel === g) fetch(`/api/tiktok?prefetch=1&q=${encodeURIComponent(g.name)}`).catch(() => {}); }, 1500);
   $$(".card").forEach((c) => c.classList.toggle("on", S.results[Number(c.dataset.i)] === g));
   renderSide();
   if (g && !S.sums[g.appid]) loadSummary(g);
@@ -747,11 +750,12 @@ function doAct(act, g) {
   else if (act === "hide") hideGame(g, "not_interested");
 }
 
-const TT = { ids: [], i: 0, game: null, wheelAt: 0 };
+const TT = { ids: [], vids: [], i: 0, game: null, wheelAt: 0, errAt: 0 };
 const ttPlayer = (id) => `https://www.tiktok.com/player/v1/${id}?autoplay=1&loop=1&music_info=0&description=1&rel=0&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=0&timestamp=1&native_context_menu=0&closed_caption=0`;
 
 async function openTikTok(g) {
-  TT.game = g; TT.ids = []; TT.i = 0;
+  TT.game = g; TT.ids = []; TT.vids = []; TT.i = 0;
+  $("#tt-meta").textContent = "";
   $("#tt-title").textContent = `TikTok: ${g.name}`;
   $("#tt-count").textContent = "";
   $("#tt-phone").innerHTML = `<div class="tt-msg"><div class="tt-spin"></div>${esc(t("tt_loading"))}</div>`;
@@ -765,7 +769,8 @@ async function openTikTok(g) {
     $("#tt-phone").innerHTML = `<div class="tt-msg">${esc(t(r.error === "no_window" ? "tt_browser" : "tt_none"))}<br><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${esc(t("tt_open_site"))}</a></div>`;
     return;
   }
-  TT.ids = r.ids;
+  TT.vids = r.videos || r.ids.map((id) => ({ id }));
+  TT.ids = TT.vids.map((v) => v.id);
   showTT(0);
 }
 function showTT(i) {
@@ -773,9 +778,39 @@ function showTT(i) {
   TT.i = Math.max(0, Math.min(TT.ids.length - 1, i));
   $("#tt-phone").innerHTML = `<iframe src="${ttPlayer(TT.ids[TT.i])}" allow="autoplay; encrypted-media; fullscreen" referrerpolicy="strict-origin-when-cross-origin" title="TikTok"></iframe>`;
   $("#tt-count").textContent = `${TT.i + 1} / ${TT.ids.length}`;
+  const v = TT.vids[TT.i] || {};
+  const parts = [];
+  if (v.ts) parts.push(ago(v.ts));
+  if (v.views) parts.push(`♥ ${compact(v.views)}`);
+  $("#tt-meta").textContent = parts.join("   ");
+  $("#tt-meta").classList.toggle("old", !!v.old);
   $("#tt-prev").disabled = TT.i === 0;
   $("#tt-next").disabled = TT.i === TT.ids.length - 1;
 }
+function compact(n) {
+  return new Intl.NumberFormat(S.lang === "en" ? "en" : S.lang === "uk" ? "uk" : "ru", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+}
+function ago(ts) {
+  const d = Math.max(0, Date.now() / 1000 - ts);
+  const rtf = new Intl.RelativeTimeFormat(S.lang === "en" ? "en" : S.lang === "uk" ? "uk" : "ru", { numeric: "auto" });
+  if (d < 86400) return rtf.format(-Math.round(d / 3600), "hour");
+  if (d < 86400 * 30) return rtf.format(-Math.round(d / 86400), "day");
+  if (d < 86400 * 365) return rtf.format(-Math.round(d / (86400 * 30)), "month");
+  return rtf.format(-Math.round(d / (86400 * 365)), "year");
+}
+// плеер TikTok сообщает о своих событиях через postMessage: при ошибке листаем дальше сами
+window.addEventListener("message", (e) => {
+  if (!/tiktok\.com$/.test(new URL(e.origin || "http://x").hostname) || !$("#tt").open) return;
+  let d = e.data;
+  try { if (typeof d === "string") d = JSON.parse(d); } catch { return; }
+  const type = d && (d.type || d.event);
+  if (type === "onError" || type === "error") {
+    const now = Date.now();
+    if (now - TT.errAt < 800) return;
+    TT.errAt = now;
+    if (TT.i < TT.ids.length - 1) showTT(TT.i + 1);
+  }
+});
 function closeTT() { $("#tt-phone").innerHTML = ""; TT.game = null; if ($("#tt").open) $("#tt").close(); }
 
 async function hideGame(g, reason) {
