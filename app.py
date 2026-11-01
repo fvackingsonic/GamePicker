@@ -280,7 +280,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": {"code": "bad_request"}})
         if url.path == "/api/tiktok":
             try:
-                return self._send(200, {"ids": tiktok_ids(q.get("q", "").strip(), q.get("mode", "offscreen"))})
+                return self._send(200, {"ids": tiktok_ids(q.get("q", "").strip(), q.get("mode", "hidden"))})
             except SteamError as e:
                 return self._send(200, {"ids": [], "error": e.code})
         if url.path == "/api/win":
@@ -469,56 +469,79 @@ TT_JS = "Array.from(document.querySelectorAll('a[href*=\"/video/\"]')).map(funct
 TT_DIAG = "document.title + ' | ' + location.href + ' | a=' + document.querySelectorAll('a').length + ' | ' + (document.body ? document.body.innerText.replace(/\\s+/g, ' ').slice(0, 160) : '')"
 
 
-def tiktok_ids(query, mode="offscreen"):
-    """ID видео TikTok по запросу: открываем поиск TikTok в скрытом окне и собираем ссылки на видео.
-    Сами видео потом играют через официальный встраиваемый плеер TikTok (без входа и лайков)."""
+def _tt_urls(query):
+    """Публичные страницы TikTok, которые открываются без входа, и поиск (работает, если вход уже был)."""
+    base = re.sub(r"\s*[:\-–—(].*$", "", query).strip() or query  # «Hades II: …» → «Hades II»
+    words = re.sub(r"[^0-9a-zA-Zа-яА-ЯёЁіїєґІЇЄҐ]+", " ", base).strip().lower().split()
+    tag = "".join(words)
+    dashed = "-".join(words)
+    urls = []
+    if dashed:
+        urls.append(f"https://www.tiktok.com/discover/{urllib.parse.quote(dashed)}-game")
+    if tag:
+        urls.append(f"https://www.tiktok.com/tag/{urllib.parse.quote(tag)}")
+    if dashed:
+        urls.append(f"https://www.tiktok.com/discover/{urllib.parse.quote(dashed)}")
+    urls.append("https://www.tiktok.com/search/video?q=" + urllib.parse.quote(query))
+    return urls
+
+
+def _tt_scan(wv, url, mode):
+    if mode == "offscreen":
+        w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, x=-6000, y=-6000,
+                             focus=False, on_top=False)
+    else:
+        w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, hidden=True)
+    ids = []
+    try:
+        for i in range(22):
+            time.sleep(2.5 if i == 0 else 0.6)
+            try:
+                hrefs = w.evaluate_js(TT_JS) or []
+            except Exception:  # noqa: BLE001
+                hrefs = []
+            for h in hrefs:
+                m = re.search(r"/video/(\d{8,})", str(h))
+                if m and m.group(1) not in ids:
+                    ids.append(m.group(1))
+            if i in (0, 8, 21):
+                try:
+                    log(f"TikTok scan [{mode}] {url} #{i}: {w.evaluate_js(TT_DIAG)}")
+                except Exception as e:  # noqa: BLE001
+                    log(f"TikTok scan [{mode}] #{i}: diag error {e!r}")
+            if len(ids) >= 30 or (ids and i >= 12):
+                break
+            if i % 3 == 2:
+                try:
+                    w.evaluate_js("window.scrollBy(0, 3000)")
+                except Exception:  # noqa: BLE001
+                    pass
+    finally:
+        try:
+            w.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+    return ids
+
+
+def tiktok_ids(query, mode="hidden"):
+    """ID видео TikTok об игре. Страницу TikTok открываем в невидимом окне и собираем ссылки на видео,
+    а играют они потом через официальный встраиваемый плеер TikTok (без входа и лайков)."""
     if not query:
         return []
-    key = query.lower()
-    key = f"{mode}:{key}"
+    key = f"{mode}:{query.lower()}"
     hit = TT["cache"].get(key)
     if hit and time.time() - hit[0] < 6 * 3600 and hit[1]:
         return hit[1]
     if not WEBVIEW["active"] or not WEBVIEW["module"]:
         raise SteamError("no_window")
     with TT["lock"]:
-        wv = WEBVIEW["module"]
-        url = "https://www.tiktok.com/search/video?q=" + urllib.parse.quote(query)
-        if mode == "hidden":
-            w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, hidden=True)
-        else:  # обычное окно за пределами экрана: TikTok может не грузиться в скрытом
-            w = wv.create_window("GamePicker TikTok scan", url, width=480, height=1000, x=-6000, y=-6000,
-                                 focus=False, on_top=False)
         ids = []
-        try:
-            for i in range(32):
-                time.sleep(2.5 if i == 0 else 0.6)
-                try:
-                    hrefs = w.evaluate_js(TT_JS) or []
-                except Exception:  # noqa: BLE001
-                    hrefs = []
-                for h in hrefs:
-                    m = re.search(r"/video/(\d{8,})", str(h))
-                    if m and m.group(1) not in ids:
-                        ids.append(m.group(1))
-                if i in (0, 6, 31) or (ids and i % 10 == 0):
-                    try:
-                        log(f"TikTok scan [{mode}] #{i}: {w.evaluate_js(TT_DIAG)}")
-                    except Exception as e:  # noqa: BLE001
-                        log(f"TikTok scan [{mode}] #{i}: diag error {e!r}")
-                if len(ids) >= 30:
-                    break
-                if i % 3 == 2:
-                    try:
-                        w.evaluate_js("window.scrollBy(0, 3000)")
-                    except Exception:  # noqa: BLE001
-                        pass
-        finally:
-            try:
-                w.destroy()
-            except Exception:  # noqa: BLE001
-                pass
-        log(f"TikTok «{query}»: найдено видео {len(ids)}")
+        for url in _tt_urls(query):
+            ids = _tt_scan(WEBVIEW["module"], url, mode)
+            log(f"TikTok «{query}» {url}: видео {len(ids)}")
+            if len(ids) >= 3:
+                break
         TT["cache"][key] = (time.time(), ids)
         return ids
 

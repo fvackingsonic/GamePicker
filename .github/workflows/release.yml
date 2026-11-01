@@ -96,13 +96,14 @@ jobs:
           try { $ping = (Invoke-RestMethod "$base/api/ping").ok } catch { $ping = $false }
           "alive=$alive ping=$ping"
           try { $w = Invoke-RestMethod "$base/api/win"; "win: frameless=$($w.frameless) rect=$($w.rect | ConvertTo-Json -Compress)" } catch { "win error: $_" }
+          [System.Windows.Forms.SendKeys]::SendWait("{ESC}"); Start-Sleep -Milliseconds 600
           Shot "1_window"
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"max"}' "$base/api/win"; "after max: $($m.rect | ConvertTo-Json -Compress)" } catch { "max error: $_" }
           Start-Sleep -Seconds 2; Shot "2_maximized"
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"max"}' "$base/api/win"; "after restore: $($m.rect | ConvertTo-Json -Compress)" } catch { "restore error: $_" }
           try { $m = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"action":"rect","x":60,"y":40,"w":1100,"h":760}' "$base/api/win"; "after resize: $($m.rect | ConvertTo-Json -Compress)" } catch { "resize error: $_" }
-          foreach ($mode in @("offscreen", "hidden")) {
-            try { $tt = Invoke-RestMethod -TimeoutSec 90 "$base/api/tiktok?q=Hades&mode=$mode"; "tiktok[$mode] ids: $($tt.ids.Count) first=$($tt.ids | Select-Object -First 3) error=$($tt.error)" } catch { "tiktok[$mode] error: $_" }
+          foreach ($q in @("Palworld", "Hades II", "Stardew Valley")) {
+            try { $tt = Invoke-RestMethod -TimeoutSec 150 "$base/api/tiktok?q=$([uri]::EscapeDataString($q))"; "tiktok[$q] ids: $($tt.ids.Count) first=$($tt.ids | Select-Object -First 3) error=$($tt.error)" } catch { "tiktok[$q] error: $_" }
           }
           Start-Sleep -Seconds 1; Shot "3_after"
           Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
