@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -143,6 +144,10 @@ def apply_and_restart(before_exit):
         raise RuntimeError("not_ready")
     exe = sys.executable
     old = exe + ".old"
+    staged = exe + ".new"
+    # копируем рядом с exe: AppData и папка с exe могут быть на разных дисках, а переименование
+    # между дисками невозможно
+    shutil.copyfile(STATE["file"], staged)
     try:
         if os.path.exists(old):
             os.remove(old)
@@ -150,10 +155,14 @@ def apply_and_restart(before_exit):
         old = exe + f".{int(time.time())}.old"
     os.replace(exe, old)              # работающий exe можно переименовать
     try:
-        os.replace(STATE["file"], exe)
+        os.replace(staged, exe)
     except OSError:
         os.replace(old, exe)          # откат
         raise
+    try:
+        os.remove(STATE["file"])
+    except OSError:
+        pass
 
     def go():
         time.sleep(0.4)
@@ -173,7 +182,7 @@ def cleanup_old():
     folder = os.path.dirname(sys.executable)
     base = os.path.basename(sys.executable)
     for name in os.listdir(folder):
-        if name.startswith(base + ".") and name.endswith(".old"):
+        if name.startswith(base + ".") and (name.endswith(".old") or name.endswith(".new")):
             try:
                 os.remove(os.path.join(folder, name))
             except OSError:
