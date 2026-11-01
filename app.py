@@ -57,8 +57,10 @@ def fatal_box(text):
 HOST, PORT = "127.0.0.1", int(os.environ.get("GAMEPICKER_PORT", "8765"))
 STATIC = os.path.join(BASE_DIR, "static")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 LAST_PING = [0.0]
+WEBVIEW = {"active": False, "module": None, "extra": []}
+POPUP_HOSTS = re.compile(r"^(www\.)?tiktok\.com$")
 DEFAULT_CONFIG = {
     "steam_api_key": "",
     "steam_profile": "",
@@ -316,6 +318,23 @@ class Handler(BaseHTTPRequestHandler):
                 if str(aid).isdigit():
                     userdata.hide(aid)
             return self._send(200, {"items": userdata.hidden_list()})
+        if url.path == "/api/window":  # TikTok в отдельном окне приложения
+            target = str(body.get("url", ""))
+            host = urlparse(target).hostname or ""
+            if not target.startswith("https://") or not POPUP_HOSTS.match(host):
+                return self._send(400, {"error": {"code": "bad_request"}})
+            if not WEBVIEW["active"]:
+                return self._send(200, {"opened": False})
+            try:
+                wv = WEBVIEW["module"]
+                title = str(body.get("title") or "TikTok")[:80]
+                w = wv.create_window(title, target, width=460, height=860, min_size=(360, 560),
+                                     background_color="#000000")
+                WEBVIEW["extra"].append(w)
+                return self._send(200, {"opened": True})
+            except Exception:  # noqa: BLE001
+                log("Не открылось окно TikTok:\n" + traceback.format_exc())
+                return self._send(200, {"opened": False})
         if url.path == "/api/family":
             if body.get("clear"):
                 userdata.family_clear()
@@ -377,6 +396,8 @@ def run_window(url):
         win = webview.create_window("GamePicker", url, width=1360, height=900, min_size=(420, 600),
                                     background_color="#e9e6f2", text_select=True)
         win.events.shown += shown.set
+        WEBVIEW["module"] = webview
+        win.events.shown += lambda: WEBVIEW.update(active=True)
         kwargs = {"gui": "edgechromium"} if os.name == "nt" else {}
         kwargs.update(private_mode=False, storage_path=os.path.join(DATA_DIR, "webview"))
         webview.start(**kwargs)
@@ -408,6 +429,11 @@ def main():
 
     if not headless and not mode_browser:
         if run_window(url):
+            for w in WEBVIEW["extra"]:
+                try:
+                    w.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
             log("Окно закрыто — выход")
             srv.shutdown()
             return

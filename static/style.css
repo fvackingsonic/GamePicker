@@ -278,6 +278,7 @@ label small { margin-top: 4px; }
 .stub-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-top: 8px; }
 .chip-link { font-size: 13.5px; font-weight: 600; text-decoration: none; padding: 4px 11px; border: var(--line); border-radius: 999px; }
 .chip-link:hover { background: var(--soft); }
+button.chip-link { font: inherit; font-size: 13.5px; font-weight: 600; color: inherit; }
 .quiet { margin-left: auto; display: flex; gap: 12px; }
 .act-owned, .act-hide { font-size: 12.5px; }
 

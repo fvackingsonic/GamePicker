@@ -360,6 +360,9 @@ function renderResults() {
     $(".act-steam", el).href = storeUrl;
     $(".act-app", el).href = `steam://store/${g.appid}`;
     $(".act-app", el).textContent = t("open_app");
+    const tk = $(".act-tiktok", el);
+    tk.title = t("tiktok_hint");
+    tk.addEventListener("click", () => openTikTok(g));
     $(".act-owned", el).textContent = t("owned_btn");
     $(".act-owned", el).addEventListener("click", () => hideGame(g, "owned", el));
     $(".act-hide", el).textContent = t("not_interested");
@@ -410,6 +413,16 @@ function summaryHtml(s) {
   const stat = s.pct != null ? `${s.pct}% ${t("positive")}, ${num(s.total)} ${t("reviews_word")}. ` : "";
   parts.push(`<div class="src">${esc(stat)}${esc(s.ai ? "Claude" : t("source_local"))}</div>`);
   return parts.join("");
+}
+
+// ---------------------------------------------------------------- TikTok
+async function openTikTok(g) {
+  const url = `https://www.tiktok.com/search/video?q=${encodeURIComponent(g.name)}`;
+  try {
+    const r = await api("/api/window", { url, title: `TikTok: ${g.name}` });
+    if (r.opened) return;
+  } catch { /* откроем в браузере */ }
+  window.open(url, "_blank", "noopener");
 }
 
 // ---------------------------------------------------------------- media

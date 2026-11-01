@@ -78,6 +78,8 @@ jobs:
           $alive = -not $p.HasExited
           try { $r = Invoke-RestMethod http://127.0.0.1:8765/api/ping; $ping = $r.ok } catch { $ping = $false }
           "alive=$alive ping=$ping"
+          try { $w = Invoke-RestMethod -Method Post -ContentType "application/json" -Body '{"url":"https://www.tiktok.com/search/video?q=Hades","title":"TikTok: Hades"}' http://127.0.0.1:8765/api/window; "tiktok_window_opened=$($w.opened)" } catch { "tiktok_window_error=$_" }
+          Start-Sleep -Seconds 4
           Get-Content "$env:APPDATA\GamePicker\gamepicker.log" -ErrorAction SilentlyContinue
           Stop-Process -Name GamePicker -Force -ErrorAction SilentlyContinue
           Get-Process | Where-Object { $_.ProcessName -like "msedgewebview2*" } | Measure-Object | Select-Object -ExpandProperty Count

@@ -509,3 +509,6 @@ Object.assign(I18N.en, { retry: "Try again", err_bad_response: "Steam returned u
 Object.assign(I18N.ru, { trailer: "Трейлер", screenshot: "Скриншот", screenshot_n: "Скриншот {i} из {n}", close: "Закрыть", prev: "Назад", next: "Вперёд", video_error: "Не получилось воспроизвести трейлер здесь. Его можно посмотреть на странице игры в Steam." });
 Object.assign(I18N.uk, { trailer: "Трейлер", screenshot: "Скриншот", screenshot_n: "Скриншот {i} з {n}", close: "Закрити", prev: "Назад", next: "Далі", video_error: "Не вдалося відтворити трейлер тут. Його можна переглянути на сторінці гри в Steam." });
 Object.assign(I18N.en, { trailer: "Trailer", screenshot: "Screenshot", screenshot_n: "Screenshot {i} of {n}", close: "Close", prev: "Previous", next: "Next", video_error: "Couldn't play the trailer here. You can watch it on the game's Steam page." });
+Object.assign(I18N.ru, { tiktok_hint: "Видео об игре в TikTok: откроется окно с поиском" });
+Object.assign(I18N.uk, { tiktok_hint: "Відео про гру в TikTok: відкриється вікно з пошуком" });
+Object.assign(I18N.en, { tiktok_hint: "Videos about this game on TikTok: opens a search window" });
