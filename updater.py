@@ -66,6 +66,7 @@ def check(current, force=False):
         "error": None,
         "_asset": {
             "url": asset.get("browser_download_url"),
+            "api_url": asset.get("url"),
             "size": asset.get("size"),
             "digest": asset.get("digest") or "",
         } if asset else None,
@@ -98,7 +99,12 @@ def _download(info):
     path = os.path.join(UPDATE_DIR, f"GamePicker-{info['version']}.exe")
     tmp = path + ".part"
     try:
-        req = urllib.request.Request(asset["url"], headers={"User-Agent": UA, "Accept": "application/octet-stream"})
+        token = os.environ.get("GAMEPICKER_GH_TOKEN")
+        if token and asset.get("api_url"):  # проверка в сборке: приватный репозиторий
+            req = urllib.request.Request(asset["api_url"], headers={
+                "User-Agent": UA, "Accept": "application/octet-stream", "Authorization": "Bearer " + token})
+        else:
+            req = urllib.request.Request(asset["url"], headers={"User-Agent": UA, "Accept": "application/octet-stream"})
         sha = hashlib.sha256()
         got = 0
         total = asset.get("size") or 0
